@@ -1,0 +1,12 @@
+target
+.git
+.github
+.claude
+.env
+.idea
+.vscode
+.DS_Store
+Dockerfile
+.dockerignore
+README.md
+skills-lock.json
