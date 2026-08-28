@@ -11,6 +11,7 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(cfg.listen_addr).await?;
     serve(
         listener,
+        cfg.settings(),
         Duration::from_secs(cfg.shutdown_timeout_secs),
         shutdown::signal(),
     )
