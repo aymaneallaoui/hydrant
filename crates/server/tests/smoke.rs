@@ -5,12 +5,12 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use hydrant_server::{routes::router, serve};
+use hydrant_server::{config::Settings, routes::router, serve, state::AppState};
 use tokio::{net::TcpListener, sync::oneshot};
 use tower::ServiceExt;
 
 async fn get(uri: &str) -> axum::response::Response {
-    router()
+    router(AppState::new(Settings::default()))
         .oneshot(
             Request::builder()
                 .uri(uri)
@@ -58,9 +58,14 @@ async fn metrics_exposes_build_info() {
 async fn serve_returns_ok_after_shutdown() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let (tx, rx) = oneshot::channel::<()>();
-    let server = tokio::spawn(serve(listener, Duration::from_secs(5), async move {
-        rx.await.expect("shutdown sender dropped");
-    }));
+    let server = tokio::spawn(serve(
+        listener,
+        Settings::default(),
+        Duration::from_secs(5),
+        async move {
+            rx.await.expect("shutdown sender dropped");
+        },
+    ));
 
     tx.send(()).expect("send shutdown");
     let result = tokio::time::timeout(Duration::from_secs(2), server)
