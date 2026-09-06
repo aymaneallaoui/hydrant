@@ -3,10 +3,10 @@ export
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run build test lint fmt fmt-check bench
+.PHONY: help run build test lint fmt fmt-check bench loadgen
 
 help:
-	@echo "targets: run build test lint fmt fmt-check bench"
+	@echo "targets: run build test lint fmt fmt-check bench loadgen"
 
 run:
 	cargo run -p hydrant-server
@@ -28,3 +28,6 @@ fmt-check:
 
 bench:
 	cargo bench --workspace
+
+loadgen:
+	cargo run --release -p hydrant-loadgen -- $(ARGS)
