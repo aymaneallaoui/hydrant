@@ -17,7 +17,7 @@ struct Inner {
 impl AppState {
     #[must_use]
     pub fn new(settings: Settings) -> Self {
-        let metrics = Arc::new(Metrics::default());
+        let metrics = Arc::new(Metrics::with_max_connections(settings.max_connections));
         let hub = Hub::new(
             settings.topic_capacity,
             settings.slow_consumer_policy,

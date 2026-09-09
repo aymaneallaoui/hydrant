@@ -13,7 +13,7 @@ pub async fn publish(
     body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
     let payload = body.try_into().map_err(|_| ApiError::InvalidPayload)?;
-    let receivers = state.hub().publish(&topic, payload);
+    let receivers = state.hub().publish(&topic, payload)?;
     Ok((
         StatusCode::ACCEPTED,
         [(header::CONTENT_TYPE, "application/json")],

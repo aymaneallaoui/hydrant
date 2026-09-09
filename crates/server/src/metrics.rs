@@ -1,8 +1,12 @@
 use std::{
-    fmt::Write as _,
+    error::Error,
+    fmt::{self, Write as _},
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering::Relaxed},
+        atomic::{
+            AtomicU64,
+            Ordering::{AcqRel, Acquire, Relaxed},
+        },
     },
 };
 
@@ -14,8 +18,22 @@ pub enum Transport {
     Ws,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConnectionLimit;
+
+impl fmt::Display for ConnectionLimit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("server is at its connection limit")
+    }
+}
+
+impl Error for ConnectionLimit {}
+
 #[derive(Debug, Default)]
 pub struct Metrics {
+    max_connections: Option<u64>,
+    connections_total: AtomicU64,
+    connections_rejected: AtomicU64,
     connections_sse: AtomicU64,
     connections_ws: AtomicU64,
     published: AtomicU64,
@@ -26,16 +44,53 @@ pub struct Metrics {
 
 impl Metrics {
     #[must_use]
-    pub fn connection(self: &Arc<Self>, transport: Transport) -> ConnectionGuard {
+    pub fn with_max_connections(max_connections: Option<usize>) -> Self {
+        Self {
+            max_connections: max_connections.map(|max| u64::try_from(max).unwrap_or(u64::MAX)),
+            ..Self::default()
+        }
+    }
+
+    pub fn connection(
+        self: &Arc<Self>,
+        transport: Transport,
+    ) -> Result<ConnectionGuard, ConnectionLimit> {
+        let admitted = if let Some(max) = self.max_connections {
+            self.connections_total
+                .fetch_update(AcqRel, Acquire, |open| (open < max).then_some(open + 1))
+                .is_ok()
+        } else {
+            self.connections_total.fetch_add(1, Relaxed);
+            true
+        };
+        if !admitted {
+            self.connections_rejected.fetch_add(1, Relaxed);
+            return Err(ConnectionLimit);
+        }
         self.gauge(transport).fetch_add(1, Relaxed);
-        ConnectionGuard {
+        Ok(ConnectionGuard {
             metrics: Arc::clone(self),
             transport,
-        }
+        })
     }
 
     pub(crate) fn message_published(&self) {
         self.published.fetch_add(1, Relaxed);
+    }
+
+    #[must_use]
+    pub fn published_total(&self) -> u64 {
+        self.published.load(Relaxed)
+    }
+
+    #[must_use]
+    pub fn connections_rejected_total(&self) -> u64 {
+        self.connections_rejected.load(Relaxed)
+    }
+
+    #[must_use]
+    pub fn connections_open(&self) -> u64 {
+        self.connections_total.load(Relaxed)
     }
 
     pub(crate) fn messages_dropped(&self, count: u64) {
@@ -91,13 +146,17 @@ impl Metrics {
              hydrant_messages_dropped_total {}\n\
              # HELP hydrant_slow_consumer_disconnects_total Subscribers disconnected for being too slow.\n\
              # TYPE hydrant_slow_consumer_disconnects_total counter\n\
-             hydrant_slow_consumer_disconnects_total {}\n",
+             hydrant_slow_consumer_disconnects_total {}\n\
+             # HELP hydrant_connections_rejected_total Subscribe requests refused because the connection limit was reached.\n\
+             # TYPE hydrant_connections_rejected_total counter\n\
+             hydrant_connections_rejected_total {}\n",
             env!("CARGO_PKG_VERSION"),
             self.connections_sse.load(Relaxed),
             self.connections_ws.load(Relaxed),
             self.published.load(Relaxed),
             self.dropped.load(Relaxed),
             self.slow_consumer_disconnects.load(Relaxed),
+            self.connections_rejected.load(Relaxed),
         );
         out
     }
@@ -119,6 +178,7 @@ pub struct ConnectionGuard {
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
         let previous = self.metrics.gauge(self.transport).fetch_sub(1, Relaxed);
+        self.metrics.connections_total.fetch_sub(1, Relaxed);
         if previous == 1 && self.transport == Transport::Ws {
             self.metrics.ws_idle.notify_waiters();
         }

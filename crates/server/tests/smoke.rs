@@ -74,3 +74,22 @@ async fn serve_returns_ok_after_shutdown() {
         .expect("serve task panicked");
     result.expect("serve returned an error");
 }
+
+#[tokio::test]
+async fn publish_while_closed_returns_503_and_is_not_counted() {
+    let state = AppState::new(Settings::default());
+    state.hub().close();
+    let res = router(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/topics/t")
+                .body(Body::from("x"))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(state.metrics().published_total(), 0);
+}

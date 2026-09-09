@@ -113,7 +113,10 @@ pub struct SseClient {
 
 impl SseClient {
     pub async fn connect(addr: SocketAddr, topic: &str) -> Self {
-        let mut stream = TcpStream::connect(addr).await.expect("connect");
+        Self::over(TcpStream::connect(addr).await.expect("connect"), topic).await
+    }
+
+    pub async fn over(mut stream: TcpStream, topic: &str) -> Self {
         let request = format!(
             "GET /topics/{topic}/sse HTTP/1.1\r\nHost: test\r\nAccept: text/event-stream\r\n\r\n"
         );
@@ -157,4 +160,25 @@ pub fn metric(body: &str, line_prefix: &str) -> u64 {
         .trim()
         .parse()
         .expect("numeric metric")
+}
+
+pub async fn wait_until<F, Fut>(what: &str, mut condition: F)
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = bool>,
+{
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while !condition().await {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+pub async fn small_buffer_stream(addr: SocketAddr) -> TcpStream {
+    let socket = tokio::net::TcpSocket::new_v4().expect("socket");
+    socket.set_recv_buffer_size(4096).expect("rcvbuf");
+    socket.connect(addr).await.expect("connect")
 }

@@ -149,12 +149,14 @@ impl Hub {
         }
     }
 
-    #[must_use]
-    pub fn publish(&self, topic: &TopicName, payload: Utf8Bytes) -> usize {
-        self.inner.metrics.message_published();
+    pub fn publish(&self, topic: &TopicName, payload: Utf8Bytes) -> Result<usize, HubClosed> {
         let state = self.inner.read();
+        if state.closed {
+            return Err(HubClosed);
+        }
+        self.inner.metrics.message_published();
         let Some(topic) = state.topics.get(topic) else {
-            return 0;
+            return Ok(0);
         };
         // seq assignment and send share one critical section so subscribers see seq in order.
         let mut next_seq = topic
@@ -163,7 +165,7 @@ impl Hub {
             .unwrap_or_else(PoisonError::into_inner);
         let seq = *next_seq;
         *next_seq += 1;
-        topic.sender.send(Message { seq, payload }).unwrap_or(0)
+        Ok(topic.sender.send(Message { seq, payload }).unwrap_or(0))
     }
 
     pub fn subscribe(&self, name: &TopicName) -> Result<Subscription, HubClosed> {
@@ -314,8 +316,8 @@ mod tests {
         let mut a = hub.subscribe(&topic).expect("subscribe");
         let mut b = hub.subscribe(&topic).expect("subscribe");
 
-        assert_eq!(hub.publish(&topic, payload("one")), 2);
-        assert_eq!(hub.publish(&topic, payload("two")), 2);
+        assert_eq!(hub.publish(&topic, payload("one")), Ok(2));
+        assert_eq!(hub.publish(&topic, payload("two")), Ok(2));
 
         for sub in [&mut a, &mut b] {
             let first = sub.recv().await.expect("first");
@@ -328,7 +330,7 @@ mod tests {
     #[test]
     fn publish_without_subscribers_creates_no_topic() {
         let hub = hub(8, SlowConsumerPolicy::Disconnect);
-        assert_eq!(hub.publish(&name("t"), payload("x")), 0);
+        assert_eq!(hub.publish(&name("t"), payload("x")), Ok(0));
         assert_eq!(hub.topic_count(), 0);
     }
 
@@ -352,7 +354,7 @@ mod tests {
         let topic = name("t");
         let mut sub = hub.subscribe(&topic).expect("subscribe");
         for _ in 0..10 {
-            assert_eq!(hub.publish(&topic, payload("m")), 1);
+            assert_eq!(hub.publish(&topic, payload("m")), Ok(1));
         }
 
         let next = sub.recv().await.expect("oldest retained message");
@@ -370,7 +372,7 @@ mod tests {
         let topic = name("t");
         let mut sub = hub.subscribe(&topic).expect("subscribe");
         for _ in 0..10 {
-            assert_eq!(hub.publish(&topic, payload("m")), 1);
+            assert_eq!(hub.publish(&topic, payload("m")), Ok(1));
         }
 
         assert_eq!(sub.recv().await.unwrap_err(), SubscriptionEnd::SlowConsumer);
@@ -389,6 +391,19 @@ mod tests {
         assert_eq!(sub.recv().await.unwrap_err(), SubscriptionEnd::Closed);
         assert_eq!(hub.topic_count(), 0);
         assert_eq!(hub.subscribe(&topic).unwrap_err(), HubClosed);
-        assert_eq!(hub.publish(&topic, payload("x")), 0);
+        assert_eq!(hub.publish(&topic, payload("x")), Err(HubClosed));
+    }
+
+    #[test]
+    fn publish_after_close_fails_and_is_not_counted() {
+        let hub = hub(4, SlowConsumerPolicy::Disconnect);
+        let topic = name("t");
+        assert_eq!(hub.publish(&topic, payload("before")), Ok(0));
+        assert_eq!(hub.metrics().published_total(), 1);
+
+        hub.close();
+
+        assert_eq!(hub.publish(&topic, payload("after")), Err(HubClosed));
+        assert_eq!(hub.metrics().published_total(), 1);
     }
 }

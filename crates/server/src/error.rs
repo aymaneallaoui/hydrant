@@ -3,13 +3,17 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-use crate::hub::{HubClosed, TopicNameError};
+use crate::{
+    hub::{HubClosed, TopicNameError},
+    metrics::ConnectionLimit,
+};
 
 #[derive(Debug)]
 pub enum ApiError {
     InvalidTopic(TopicNameError),
     InvalidPayload,
     ShuttingDown,
+    AtCapacity,
 }
 
 impl From<TopicNameError> for ApiError {
@@ -24,6 +28,12 @@ impl From<HubClosed> for ApiError {
     }
 }
 
+impl From<ConnectionLimit> for ApiError {
+    fn from(_: ConnectionLimit) -> Self {
+        Self::AtCapacity
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         match self {
@@ -35,6 +45,10 @@ impl IntoResponse for ApiError {
             Self::ShuttingDown => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "server is shutting down".to_owned(),
+            ),
+            Self::AtCapacity => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "server is at its connection limit".to_owned(),
             ),
         }
         .into_response()

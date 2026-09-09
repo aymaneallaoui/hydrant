@@ -24,8 +24,8 @@ pub async fn subscribe(
     upgrade: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
     let settings = state.settings();
-    let send_timeout = settings.ws_send_timeout;
-    let guard = state.metrics().connection(Transport::Ws);
+    let send_timeout = settings.send_timeout;
+    let guard = state.metrics().connection(Transport::Ws)?;
     let subscription = state.hub().subscribe(&topic)?;
     let metrics = state.metrics().clone();
     Ok(upgrade
