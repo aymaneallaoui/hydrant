@@ -3,6 +3,7 @@ use std::{cell::RefCell, fmt, io};
 use tokio::{io::AsyncWriteExt, net::TcpStream, time::timeout};
 
 use super::{CONNECT_TIMEOUT, ConnectFailure, Ctx, EndReason, Job, stopped};
+use crate::stats::SeqTracker;
 
 const SCRATCH_BYTES: usize = 16 * 1024;
 const MAX_HEAD_BYTES: usize = 16 * 1024;
@@ -20,7 +21,8 @@ pub async fn run(job: Job) {
         mut stop,
         alive: _alive,
     } = job;
-    let mut on_event = |data: &[u8]| ctx.shared.record_payload(index, data);
+    let mut seqs = SeqTracker::default();
+    let mut on_event = |data: &[u8]| ctx.shared.record_payload(index, &mut seqs, data);
     let mut decoder = SseDecoder::new();
 
     let connected = timeout(CONNECT_TIMEOUT, connect(&ctx, &mut decoder, &mut on_event))

@@ -11,6 +11,7 @@ use tokio_tungstenite::{
 };
 
 use super::{CONNECT_TIMEOUT, ConnectFailure, Ctx, EndReason, Job, stopped};
+use crate::stats::SeqTracker;
 
 const READ_BUFFER_BYTES: usize = 4096;
 const CLOSE_GRACE: Duration = Duration::from_secs(2);
@@ -39,6 +40,7 @@ pub async fn run(job: Job) {
         }
     };
 
+    let mut seqs = SeqTracker::default();
     loop {
         tokio::select! {
             biased;
@@ -49,7 +51,7 @@ pub async fn run(job: Job) {
             frame = ws.next() => {
                 let reason = match frame {
                     Some(Ok(Message::Text(text))) => {
-                        ctx.shared.record_payload(index, text.as_bytes());
+                        ctx.shared.record_payload(index, &mut seqs, text.as_bytes());
                         continue;
                     }
                     Some(Ok(Message::Close(frame))) => {

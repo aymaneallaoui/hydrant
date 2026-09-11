@@ -5,7 +5,7 @@ use std::{
         Mutex, MutexGuard, PoisonError,
         atomic::{AtomicU64, Ordering::Relaxed},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use hdrhistogram::Histogram;
@@ -20,9 +20,39 @@ use crate::{
 const HISTOGRAM_MAX_MICROS: u64 = 3_600_000_000;
 const MAX_SHARDS: usize = 16;
 const MAX_DISTINCT_ERRORS: usize = 8;
+const NOT_STARTED: u64 = u64::MAX;
+const RATE_WARNING_RATIO: f64 = 0.95;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeqOutcome {
+    InOrder,
+    Gap(u64),
+    Duplicate,
+}
+
+#[derive(Debug, Default)]
+pub struct SeqTracker {
+    next: u64,
+}
+
+impl SeqTracker {
+    pub fn observe(&mut self, seq: u64) -> SeqOutcome {
+        match seq.cmp(&self.next) {
+            std::cmp::Ordering::Equal => {
+                self.next = seq.saturating_add(1);
+                SeqOutcome::InOrder
+            }
+            std::cmp::Ordering::Greater => {
+                let missing = seq - self.next;
+                self.next = seq.saturating_add(1);
+                SeqOutcome::Gap(missing)
+            }
+            std::cmp::Ordering::Less => SeqOutcome::Duplicate,
+        }
+    }
+}
 
 pub struct Shared {
-    base: Instant,
     shards: Vec<Mutex<Histogram<u64>>>,
     pub established: AtomicU64,
     pub connect_failed: AtomicU64,
@@ -31,8 +61,14 @@ pub struct Shared {
     pub malformed: AtomicU64,
     pub published_ok: AtomicU64,
     pub published_failed: AtomicU64,
+    pub duplicates: AtomicU64,
+    pub gaps: AtomicU64,
+    pub scheduled: AtomicU64,
+    pub not_sent: AtomicU64,
+    publish_start_nanos: AtomicU64,
+    publish_end_nanos: AtomicU64,
+    first_publish_error: Mutex<Option<String>>,
     fd_exhausted: AtomicU64,
-    last_receive_nanos: AtomicU64,
     closed_reasons: Mutex<BTreeMap<String, u64>>,
     connect_errors: Mutex<BTreeMap<String, u64>>,
 }
@@ -52,7 +88,6 @@ impl Shared {
             })
             .collect();
         Self {
-            base: Instant::now(),
             shards,
             established: AtomicU64::new(0),
             connect_failed: AtomicU64::new(0),
@@ -61,27 +96,61 @@ impl Shared {
             malformed: AtomicU64::new(0),
             published_ok: AtomicU64::new(0),
             published_failed: AtomicU64::new(0),
+            duplicates: AtomicU64::new(0),
+            gaps: AtomicU64::new(0),
+            scheduled: AtomicU64::new(0),
+            not_sent: AtomicU64::new(0),
+            publish_start_nanos: AtomicU64::new(NOT_STARTED),
+            publish_end_nanos: AtomicU64::new(NOT_STARTED),
+            first_publish_error: Mutex::new(None),
             fd_exhausted: AtomicU64::new(0),
-            last_receive_nanos: AtomicU64::new(0),
             closed_reasons: Mutex::new(BTreeMap::new()),
             connect_errors: Mutex::new(BTreeMap::new()),
         }
     }
 
-    #[must_use]
-    pub fn elapsed_nanos(&self) -> u64 {
-        u64::try_from(self.base.elapsed().as_nanos()).unwrap_or(u64::MAX)
+    pub fn publish_started(&self, nanos: u64) {
+        self.publish_start_nanos.store(nanos, Relaxed);
     }
 
-    pub fn record_payload(&self, shard_hint: usize, payload: &[u8]) {
-        let Some((sent_nanos, _seq)) = payload::decode(payload) else {
+    pub fn publish_ended(&self, nanos: u64) {
+        self.publish_end_nanos.store(nanos, Relaxed);
+    }
+
+    pub fn record_publish_error(&self, error: &str) {
+        lock(&self.first_publish_error).get_or_insert_with(|| error.to_owned());
+    }
+
+    #[must_use]
+    pub fn first_publish_error(&self) -> Option<String> {
+        lock(&self.first_publish_error).clone()
+    }
+
+    pub fn record_payload(&self, shard_hint: usize, seqs: &mut SeqTracker, payload: &[u8]) {
+        let Some((sent_nanos, seq)) = payload::decode(payload) else {
             self.malformed.fetch_add(1, Relaxed);
             return;
         };
-        let micros = payload::unix_nanos().saturating_sub(sent_nanos) / 1000;
+        match seqs.observe(seq) {
+            SeqOutcome::Duplicate => {
+                self.duplicates.fetch_add(1, Relaxed);
+                return;
+            }
+            SeqOutcome::Gap(missing) => {
+                self.gaps.fetch_add(missing, Relaxed);
+            }
+            SeqOutcome::InOrder => {}
+        }
+        self.record_latency(shard_hint, payload::monotonic_nanos(), sent_nanos);
+    }
+
+    fn record_latency(&self, shard_hint: usize, now_nanos: u64, sent_nanos: u64) {
+        let Some(elapsed) = now_nanos.checked_sub(sent_nanos) else {
+            self.malformed.fetch_add(1, Relaxed);
+            return;
+        };
+        let micros = elapsed / 1000;
         lock(&self.shards[shard_hint % self.shards.len()]).saturating_record(micros.max(1));
-        self.last_receive_nanos
-            .fetch_max(self.elapsed_nanos(), Relaxed);
         self.received.fetch_add(1, Relaxed);
     }
 
@@ -123,9 +192,10 @@ impl Shared {
         let expected = published_ok.saturating_mul(established);
         let missing = expected.saturating_sub(received);
         let connect_secs = facts.connect_elapsed.as_secs_f64();
-        let window_secs = facts.publish_start_nanos.map_or(0.0, |start| {
-            to_f64(self.last_receive_nanos.load(Relaxed).saturating_sub(start)) / 1e9
-        });
+        let phase_secs = self.publish_phase_secs();
+        let requested_rate = f64::from(args.rate);
+        let achieved_rate = ratio(to_f64(published_ok), phase_secs);
+        let started = self.publish_start_nanos.load(Relaxed) != NOT_STARTED;
         Report {
             params: Params::from_args(args),
             interrupted: facts.interrupted,
@@ -141,8 +211,15 @@ impl Shared {
                 connects_per_sec: round3(ratio(to_f64(established), connect_secs)),
             },
             publish: PublishStats {
+                scheduled: self.scheduled.load(Relaxed),
                 ok: published_ok,
                 failed: self.published_failed.load(Relaxed),
+                not_sent: self.not_sent.load(Relaxed),
+                requested_rate,
+                achieved_rate: round3(achieved_rate),
+                rate_shortfall: started && achieved_rate < requested_rate * RATE_WARNING_RATIO,
+                phase_secs: round3(phase_secs),
+                first_error: self.first_publish_error(),
             },
             deliveries: DeliveryStats {
                 expected,
@@ -150,6 +227,8 @@ impl Shared {
                 missing,
                 loss_percent: round3(ratio(to_f64(missing), to_f64(expected)) * 100.0),
                 malformed: self.malformed.load(Relaxed),
+                duplicates: self.duplicates.load(Relaxed),
+                gaps: self.gaps.load(Relaxed),
             },
             latency_ms: (!merged.is_empty()).then(|| LatencyMs {
                 min: micros_to_ms(merged.min()),
@@ -161,10 +240,22 @@ impl Shared {
                 max: micros_to_ms(merged.max()),
             }),
             throughput: Throughput {
-                deliveries_per_sec: round3(ratio(to_f64(received), window_secs)),
-                window_secs: round3(window_secs),
+                deliveries_per_sec: round3(ratio(to_f64(received), phase_secs)),
+                publish_phase_secs: round3(phase_secs),
             },
         }
+    }
+
+    fn publish_phase_secs(&self) -> f64 {
+        let start = self.publish_start_nanos.load(Relaxed);
+        if start == NOT_STARTED {
+            return 0.0;
+        }
+        let end = match self.publish_end_nanos.load(Relaxed) {
+            NOT_STARTED => payload::monotonic_nanos(),
+            end => end,
+        };
+        to_f64(end.saturating_sub(start)) / 1e9
     }
 }
 
@@ -176,7 +267,6 @@ impl Default for Shared {
 
 pub struct RunFacts {
     pub connect_elapsed: Duration,
-    pub publish_start_nanos: Option<u64>,
     pub interrupted: bool,
 }
 
@@ -260,8 +350,42 @@ pub struct ConnectionStats {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PublishStats {
+    pub scheduled: u64,
     pub ok: u64,
     pub failed: u64,
+    pub not_sent: u64,
+    pub requested_rate: f64,
+    pub achieved_rate: f64,
+    pub rate_shortfall: bool,
+    pub phase_secs: f64,
+    pub first_error: Option<String>,
+}
+
+impl PublishStats {
+    fn rows(&self) -> Vec<(String, String)> {
+        let mut rows = vec![
+            ("scheduled".to_owned(), self.scheduled.to_string()),
+            ("ok".into(), self.ok.to_string()),
+            ("failed".into(), self.failed.to_string()),
+            ("not sent".into(), self.not_sent.to_string()),
+            (
+                "requested rate (msg/s)".into(),
+                format!("{:.1}", self.requested_rate),
+            ),
+            (
+                "achieved rate (msg/s)".into(),
+                format!("{:.1}", self.achieved_rate),
+            ),
+            (
+                "publish phase (s)".into(),
+                format!("{:.3}", self.phase_secs),
+            ),
+        ];
+        if let Some(error) = &self.first_error {
+            rows.push(("first error".into(), error.clone()));
+        }
+        rows
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -271,6 +395,8 @@ pub struct DeliveryStats {
     pub missing: u64,
     pub loss_percent: f64,
     pub malformed: u64,
+    pub duplicates: u64,
+    pub gaps: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -287,7 +413,7 @@ pub struct LatencyMs {
 #[derive(Debug, Clone, Serialize)]
 pub struct Throughput {
     pub deliveries_per_sec: f64,
-    pub window_secs: f64,
+    pub publish_phase_secs: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -357,14 +483,8 @@ impl Report {
         ));
         section(&mut text, "connections", rows);
 
-        section(
-            &mut text,
-            "publish",
-            vec![
-                ("ok".into(), self.publish.ok.to_string()),
-                ("failed".into(), self.publish.failed.to_string()),
-            ],
-        );
+        let pb = &self.publish;
+        section(&mut text, "publish", pb.rows());
 
         section(
             &mut text,
@@ -375,8 +495,10 @@ impl Report {
                 ("missing".into(), d.missing.to_string()),
                 ("loss (%)".into(), format!("{:.3}", d.loss_percent)),
                 ("malformed".into(), d.malformed.to_string()),
+                ("duplicates".into(), d.duplicates.to_string()),
+                ("gaps seen".into(), d.gaps.to_string()),
                 (
-                    "throughput (deliveries/s)".into(),
+                    "deliveries/s over publish phase".into(),
                     format!("{:.0}", self.throughput.deliveries_per_sec),
                 ),
             ],
@@ -401,6 +523,14 @@ impl Report {
         );
         section(&mut text, "latency (ms)", latency_rows);
 
+        if pb.rate_shortfall {
+            let _ = write!(
+                text,
+                "\nwarning: achieved publish rate {:.1} msg/s is below 95% of the requested {:.1} msg/s; \
+latency figures describe a lower load than requested\n",
+                pb.achieved_rate, pb.requested_rate
+            );
+        }
         if c.fd_limit_failures > 0 {
             let _ = write!(text, "\n{}\n", fd_hint(c.fd_limit_failures));
         }
@@ -414,7 +544,7 @@ fn section(text: &mut String, title: &str, rows: Vec<(String, String)>) {
     }
     let _ = writeln!(text, "{title}");
     for (label, value) in rows {
-        let _ = writeln!(text, "  {label:<28}{value}");
+        let _ = writeln!(text, "  {label:<34}{value}");
     }
 }
 
@@ -439,52 +569,131 @@ mod tests {
     fn facts() -> RunFacts {
         RunFacts {
             connect_elapsed: Duration::from_secs(1),
-            publish_start_nanos: Some(0),
             interrupted: false,
         }
     }
 
-    fn payload_aged(age_micros: u64) -> String {
-        payload::encode(payload::unix_nanos() - age_micros * 1000, 1, 64).expect("fits")
+    #[test]
+    fn seq_tracker_classifies_in_order_gap_and_duplicate() {
+        let mut seqs = SeqTracker::default();
+        assert_eq!(seqs.observe(0), SeqOutcome::InOrder);
+        assert_eq!(seqs.observe(1), SeqOutcome::InOrder);
+        assert_eq!(seqs.observe(4), SeqOutcome::Gap(2));
+        assert_eq!(seqs.observe(4), SeqOutcome::Duplicate);
+        assert_eq!(seqs.observe(3), SeqOutcome::Duplicate);
+        assert_eq!(seqs.observe(5), SeqOutcome::InOrder);
     }
 
     #[test]
-    fn merges_shards_and_reports_sane_percentiles() {
+    fn seq_tracker_counts_a_late_first_message_as_a_gap() {
+        let mut seqs = SeqTracker::default();
+        assert_eq!(seqs.observe(3), SeqOutcome::Gap(3));
+    }
+
+    #[test]
+    fn duplicates_do_not_mask_loss() {
+        let shared = Shared::new();
+        let mut seqs = SeqTracker::default();
+        let now = payload::monotonic_nanos();
+        for seq in [0, 0, 0, 2] {
+            let body = payload::encode(now, seq, 64).expect("fits");
+            shared.record_payload(0, &mut seqs, body.as_bytes());
+        }
+        shared.established.store(1, Relaxed);
+        shared.published_ok.store(4, Relaxed);
+
+        let report = shared.report(&args(), &facts());
+        assert_eq!(report.deliveries.received, 2);
+        assert_eq!(report.deliveries.duplicates, 2);
+        assert_eq!(report.deliveries.gaps, 1);
+        assert_eq!(report.deliveries.expected, 4);
+        assert_eq!(report.deliveries.missing, 2);
+        assert!((report.deliveries.loss_percent - 50.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn merges_shards_and_reports_exact_percentiles() {
         let shared = Shared::new();
         for i in 0..1000_u64 {
-            let age = if i == 999 { 500_000 } else { 2_000 };
-            shared.record_payload(
+            let latency_nanos = if i == 999 { 500_000_000 } else { 2_000_000 };
+            shared.record_latency(
                 usize::try_from(i).expect("fits"),
-                payload_aged(age).as_bytes(),
+                1_000_000_000,
+                1_000_000_000 - latency_nanos,
             );
         }
-        shared.record_payload(0, b"not a payload");
         shared.established.store(1, Relaxed);
         shared.published_ok.store(1001, Relaxed);
 
         let report = shared.report(&args(), &facts());
         let latency = report.latency_ms.expect("latency recorded");
         assert_eq!(report.deliveries.received, 1000);
-        assert_eq!(report.deliveries.malformed, 1);
         assert_eq!(report.deliveries.expected, 1001);
         assert_eq!(report.deliveries.missing, 1);
-        assert!(latency.min >= 2.0 && latency.min < 20.0, "{latency:?}");
-        assert!(latency.p50 >= 2.0 && latency.p50 < 20.0, "{latency:?}");
-        assert!(latency.p99 < 20.0 && latency.max >= 500.0, "{latency:?}");
-        assert!(latency.min <= latency.p50 && latency.p50 <= latency.p99);
-        assert!(latency.p99 <= latency.p999 && latency.p999 <= latency.max);
+        assert!((latency.min - 2.0).abs() < 0.01, "{latency:?}");
+        assert!((latency.p50 - 2.0).abs() < 0.01, "{latency:?}");
+        assert!((latency.p99 - 2.0).abs() < 0.01, "{latency:?}");
+        assert!((latency.max - 500.0).abs() < 1.0, "{latency:?}");
+        assert!((latency.mean - 2.498).abs() < 0.01, "{latency:?}");
     }
 
     #[test]
-    fn clamps_out_of_range_latency_instead_of_panicking() {
+    fn negative_latency_is_malformed_not_a_best_case_sample() {
         let shared = Shared::new();
-        let future = payload::encode(u64::MAX, 1, 64).expect("fits");
-        shared.record_payload(0, future.as_bytes());
-        let ancient = payload::encode(1, 1, 64).expect("fits");
-        shared.record_payload(1, ancient.as_bytes());
+        shared.record_latency(0, 1_000, 2_000);
         let report = shared.report(&args(), &facts());
-        assert_eq!(report.deliveries.received, 2);
-        assert!(report.latency_ms.is_some());
+        assert_eq!(report.deliveries.malformed, 1);
+        assert_eq!(report.deliveries.received, 0);
+        assert!(report.latency_ms.is_none());
+    }
+
+    #[test]
+    fn unparseable_payload_is_malformed() {
+        let shared = Shared::new();
+        shared.record_payload(0, &mut SeqTracker::default(), b"not a payload");
+        let report = shared.report(&args(), &facts());
+        assert_eq!(report.deliveries.malformed, 1);
+        assert_eq!(report.deliveries.received, 0);
+    }
+
+    #[test]
+    fn sub_microsecond_latency_is_floored_to_one_microsecond() {
+        let shared = Shared::new();
+        shared.record_latency(0, 5_000, 5_000);
+        let latency = shared
+            .report(&args(), &facts())
+            .latency_ms
+            .expect("recorded");
+        assert!((latency.min - 0.001).abs() < 1e-9, "{latency:?}");
+    }
+
+    #[test]
+    fn rate_shortfall_is_flagged_and_rendered() {
+        let shared = Shared::new();
+        shared.publish_started(0);
+        shared.publish_ended(10_000_000_000);
+        shared.published_ok.store(50, Relaxed);
+        let report = shared.report(&args(), &facts());
+        assert!((report.publish.achieved_rate - 5.0).abs() < 1e-9);
+        assert!((report.publish.phase_secs - 10.0).abs() < 1e-9);
+        assert!(report.publish.rate_shortfall);
+        assert!(report.render().contains("lower load than requested"));
+
+        shared.published_ok.store(100, Relaxed);
+        let report = shared.report(&args(), &facts());
+        assert!(!report.publish.rate_shortfall);
+        assert!(!report.render().contains("warning"));
+    }
+
+    #[test]
+    fn throughput_uses_the_publish_phase_not_the_last_receive() {
+        let shared = Shared::new();
+        shared.publish_started(0);
+        shared.publish_ended(10_000_000_000);
+        shared.received.store(5000, Relaxed);
+        let report = shared.report(&args(), &facts());
+        assert!((report.throughput.deliveries_per_sec - 500.0).abs() < 1e-9);
+        assert!((report.throughput.publish_phase_secs - 10.0).abs() < 1e-9);
     }
 
     #[test]
@@ -492,6 +701,7 @@ mod tests {
         let report = Shared::new().report(&args(), &facts());
         assert!(report.latency_ms.is_none());
         assert!(report.deliveries.loss_percent.abs() < f64::EPSILON);
+        assert!(!report.publish.rate_shortfall);
         assert!(report.render().contains("no deliveries"));
         assert!(
             report

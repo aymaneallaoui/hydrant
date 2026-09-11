@@ -1,13 +1,17 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{sync::OnceLock, time::Instant};
 
 pub const MIN_PAYLOAD_BYTES: usize = 42;
 const FILLER: u8 = b'x';
 
+static EPOCH: OnceLock<Instant> = OnceLock::new();
+
+pub fn init_clock() {
+    EPOCH.get_or_init(Instant::now);
+}
+
 #[must_use]
-pub fn unix_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+pub fn monotonic_nanos() -> u64 {
+    u64::try_from(EPOCH.get_or_init(Instant::now).elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
 #[must_use]

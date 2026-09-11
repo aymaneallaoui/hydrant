@@ -27,10 +27,14 @@ const DRAIN_POLL: Duration = Duration::from_millis(5);
 const TEARDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn run(args: Args) -> anyhow::Result<Report> {
-    let target = cli::resolve_target(&args.url).await?;
+    payload::init_clock();
+    let mut ctrl_c = pin!(tokio::signal::ctrl_c());
+    let target = tokio::select! {
+        target = cli::resolve_target(&args.url) => target?,
+        _ = &mut ctrl_c => bail!("interrupted before the run started"),
+    };
     let connections = args.connections()?;
     let shared = Arc::new(Shared::new());
-    let mut ctrl_c = pin!(tokio::signal::ctrl_c());
     let mut interrupted = false;
 
     let (stop_tx, stop_rx) = watch::channel(false);
@@ -46,10 +50,12 @@ pub async fn run(args: Args) -> anyhow::Result<Report> {
     let permits = Arc::new(Semaphore::new(args.connect_concurrency()?));
 
     let mut publisher = Publisher::new(target, &args.topic);
-    publisher
-        .connect()
-        .await
-        .context("connecting the publisher connection")?;
+    tokio::select! {
+        connected = timeout(subscriber::CONNECT_TIMEOUT, publisher.connect()) => connected
+            .context("connecting the publisher connection timed out")?
+            .context("connecting the publisher connection")?,
+        _ = &mut ctrl_c => bail!("interrupted before the run started"),
+    }
 
     let connect_started = Instant::now();
     let connect_phase = async {
@@ -77,12 +83,10 @@ pub async fn run(args: Args) -> anyhow::Result<Report> {
     }
     let connect_elapsed = connect_started.elapsed();
 
-    let mut publish_start_nanos = None;
     let established = shared.established.load(Relaxed);
     let fatal = (!interrupted && established == 0).then(|| setup_failure(&shared, connections));
 
     if fatal.is_none() && !interrupted {
-        publish_start_nanos = Some(shared.elapsed_nanos());
         tokio::select! {
             () = publisher::run(&shared, publisher, args.rate, args.duration(), args.payload_bytes) => {}
             _ = &mut ctrl_c => interrupted = true,
@@ -112,7 +116,6 @@ pub async fn run(args: Args) -> anyhow::Result<Report> {
         &args,
         &RunFacts {
             connect_elapsed,
-            publish_start_nanos,
             interrupted,
         },
     ))

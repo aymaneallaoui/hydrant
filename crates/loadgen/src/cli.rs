@@ -1,5 +1,7 @@
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
+use tokio::{net::TcpStream, time::timeout};
+
 use anyhow::{Context, bail};
 use clap::{Parser, ValueEnum};
 use serde::Serialize;
@@ -7,6 +9,7 @@ use serde::Serialize;
 use crate::payload::MIN_PAYLOAD_BYTES;
 
 const MAX_TOPIC_LEN: usize = 128;
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -16,7 +19,12 @@ pub enum Transport {
 }
 
 #[derive(Debug, Clone, Parser)]
-#[command(version, about = "Load generator for hydrant-server")]
+#[command(
+    version,
+    about = "Load generator for hydrant-server",
+    after_help = "Exit codes: 0 run completed, 1 error, 2 no publish succeeded, \
+3 loss above --max-loss-percent"
+)]
 pub struct Args {
     #[arg(long, default_value = "http://127.0.0.1:8080")]
     pub url: String,
@@ -47,6 +55,9 @@ pub struct Args {
 
     #[arg(long, value_name = "PATH")]
     pub json: Option<PathBuf>,
+
+    #[arg(long, value_name = "PERCENT", value_parser = parse_percent)]
+    pub max_loss_percent: Option<f64>,
 }
 
 impl Args {
@@ -86,6 +97,15 @@ fn parse_topic(raw: &str) -> Result<String, String> {
     }
 }
 
+fn parse_percent(raw: &str) -> Result<f64, String> {
+    let value: f64 = raw.parse().map_err(|e| format!("{e}"))?;
+    if value.is_finite() && (0.0..=100.0).contains(&value) {
+        Ok(value)
+    } else {
+        Err("must be between 0 and 100".to_owned())
+    }
+}
+
 fn parse_payload_bytes(raw: &str) -> Result<usize, String> {
     let value: usize = raw.parse().map_err(|e| format!("{e}"))?;
     if value < MIN_PAYLOAD_BYTES {
@@ -103,7 +123,40 @@ pub struct Target {
     pub authority: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct Candidates {
+    pub addrs: Vec<SocketAddr>,
+    pub authority: String,
+}
+
+impl Candidates {
+    pub async fn first_reachable(self) -> anyhow::Result<Target> {
+        let mut failures = Vec::new();
+        for addr in &self.addrs {
+            match timeout(PROBE_TIMEOUT, TcpStream::connect(addr)).await {
+                Ok(Ok(_)) => {
+                    return Ok(Target {
+                        addr: *addr,
+                        authority: self.authority,
+                    });
+                }
+                Ok(Err(err)) => failures.push(format!("{addr}: {err}")),
+                Err(_) => failures.push(format!("{addr}: timed out")),
+            }
+        }
+        bail!(
+            "no address for {} accepted a TCP connection ({})",
+            self.authority,
+            failures.join("; ")
+        )
+    }
+}
+
 pub async fn resolve_target(url: &str) -> anyhow::Result<Target> {
+    resolve_candidates(url).await?.first_reachable().await
+}
+
+pub async fn resolve_candidates(url: &str) -> anyhow::Result<Candidates> {
     let (scheme, rest) = url
         .split_once("://")
         .with_context(|| format!("--url {url:?} has no scheme (expected http:// or ws://)"))?;
@@ -117,13 +170,15 @@ pub async fn resolve_target(url: &str) -> anyhow::Result<Target> {
         bail!("--url {url:?} needs a plain host[:port] authority");
     }
     let (host, port) = split_host_port(authority)?;
-    let addr = tokio::net::lookup_host((host, port))
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
         .await
         .with_context(|| format!("resolving {authority}"))?
-        .next()
-        .with_context(|| format!("{authority} resolved to no addresses"))?;
-    Ok(Target {
-        addr,
+        .collect();
+    if addrs.is_empty() {
+        bail!("{authority} resolved to no addresses");
+    }
+    Ok(Candidates {
+        addrs,
         authority: authority.to_owned(),
     })
 }
@@ -178,21 +233,69 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_plain_urls_and_rejects_tls() {
-        let target = resolve_target("http://127.0.0.1:9000/ignored")
+        let found = resolve_candidates("http://127.0.0.1:9000/ignored")
             .await
             .expect("resolve");
-        assert_eq!(target.addr.port(), 9000);
-        assert_eq!(target.authority, "127.0.0.1:9000");
+        assert_eq!(found.addrs, vec!["127.0.0.1:9000".parse().expect("addr")]);
+        assert_eq!(found.authority, "127.0.0.1:9000");
         assert_eq!(
-            resolve_target("ws://127.0.0.1")
+            resolve_candidates("ws://127.0.0.1")
                 .await
                 .expect("ws")
-                .addr
+                .addrs[0]
                 .port(),
             80
         );
-        let err = resolve_target("https://127.0.0.1").await.expect_err("tls");
+        let err = resolve_candidates("https://127.0.0.1")
+            .await
+            .expect_err("tls");
         assert!(err.to_string().contains("TLS"), "{err}");
-        assert!(resolve_target("127.0.0.1:80").await.is_err());
+        assert!(resolve_candidates("127.0.0.1:80").await.is_err());
+    }
+
+    fn closed_port_addr() -> SocketAddr {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        listener.local_addr().expect("addr")
+    }
+
+    #[tokio::test]
+    async fn probe_skips_unreachable_addresses() {
+        let dead = closed_port_addr();
+        let live_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let live = live_listener.local_addr().expect("addr");
+        let target = Candidates {
+            addrs: vec![dead, live],
+            authority: "test".to_owned(),
+        }
+        .first_reachable()
+        .await
+        .expect("second address is reachable");
+        assert_eq!(target.addr, live);
+    }
+
+    #[tokio::test]
+    async fn probe_failure_lists_every_tried_address() {
+        let (a, b) = (closed_port_addr(), closed_port_addr());
+        let err = Candidates {
+            addrs: vec![a, b],
+            authority: "test".to_owned(),
+        }
+        .first_reachable()
+        .await
+        .expect_err("nothing listens");
+        let message = err.to_string();
+        assert!(message.contains(&a.to_string()), "{message}");
+        assert!(message.contains(&b.to_string()), "{message}");
+    }
+
+    #[test]
+    fn max_loss_percent_is_validated() {
+        let ok = Args::try_parse_from(["loadgen", "--max-loss-percent", "0.5"]).expect("ok");
+        assert_eq!(ok.max_loss_percent, Some(0.5));
+        assert!(Args::try_parse_from(["loadgen", "--max-loss-percent", "101"]).is_err());
+        assert!(Args::try_parse_from(["loadgen", "--max-loss-percent", "-1"]).is_err());
+        assert!(Args::try_parse_from(["loadgen", "--max-loss-percent", "NaN"]).is_err());
     }
 }
