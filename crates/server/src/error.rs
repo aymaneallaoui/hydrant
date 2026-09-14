@@ -12,6 +12,7 @@ use crate::{
 pub enum ApiError {
     InvalidTopic(TopicNameError),
     InvalidPayload,
+    EmptyPayload,
     ShuttingDown,
     AtCapacity,
 }
@@ -41,6 +42,10 @@ impl IntoResponse for ApiError {
             Self::InvalidPayload => (
                 StatusCode::BAD_REQUEST,
                 "payload must be valid UTF-8".to_owned(),
+            ),
+            Self::EmptyPayload => (
+                StatusCode::BAD_REQUEST,
+                "payload must not be empty".to_owned(),
             ),
             Self::ShuttingDown => (
                 StatusCode::SERVICE_UNAVAILABLE,

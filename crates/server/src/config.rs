@@ -112,11 +112,17 @@ impl Default for Settings {
 
 fn parse_capacity(raw: &str) -> Result<usize, String> {
     let value: usize = raw.parse().map_err(|e| format!("{e}"))?;
-    if (1..=usize::MAX >> 1).contains(&value) {
-        Ok(value)
-    } else {
-        Err("must be between 1 and usize::MAX / 2".to_owned())
+    if !(1..=usize::MAX >> 1).contains(&value) {
+        return Err("must be between 1 and usize::MAX / 2".to_owned());
     }
+    if value.is_power_of_two() {
+        return Ok(value);
+    }
+    let above = value.next_power_of_two();
+    Err(format!(
+        "must be a power of two; nearest valid values are {} and {above}",
+        above >> 1
+    ))
 }
 
 fn parse_positive_secs(raw: &str) -> Result<u64, String> {
@@ -134,5 +140,33 @@ fn parse_max_connections(raw: &str) -> Result<usize, String> {
         Err("must be at least 1".to_owned())
     } else {
         Ok(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capacity_accepts_powers_of_two() {
+        for value in [1_usize, 2, 256, 1024] {
+            assert_eq!(parse_capacity(&value.to_string()), Ok(value));
+        }
+    }
+
+    #[test]
+    fn capacity_rejects_non_powers_naming_neighbours() {
+        let err = parse_capacity("300").expect_err("300 is not a power of two");
+        assert!(err.contains("256") && err.contains("512"), "{err}");
+        let err = parse_capacity("257").expect_err("257 is not a power of two");
+        assert!(err.contains("256") && err.contains("512"), "{err}");
+        assert!(parse_capacity("3").expect_err("3").contains("2 and 4"));
+    }
+
+    #[test]
+    fn capacity_rejects_zero_and_oversized() {
+        assert!(parse_capacity("0").is_err());
+        assert!(parse_capacity(&usize::MAX.to_string()).is_err());
+        assert!(parse_capacity("abc").is_err());
     }
 }

@@ -129,6 +129,27 @@ async fn non_utf8_body_is_rejected() {
 }
 
 #[tokio::test]
+async fn empty_body_is_rejected_and_not_delivered_or_counted() {
+    let mut server = start().await;
+    let mut sse = SseClient::connect(server.addr, "room").await;
+
+    let (status, message) = server.publish("room", b"").await;
+    assert_eq!(status, 400);
+    assert!(message.contains("empty"), "{message}");
+    let body = server.metrics().await;
+    assert_eq!(metric(&body, "hydrant_messages_published_total "), 0);
+
+    assert_eq!(server.publish("room", b"real").await.0, 202);
+    let event = sse.next_event().await;
+    assert!(event.contains("id: 1\ndata: real\n\n"), "{event:?}");
+    let body = server.metrics().await;
+    assert_eq!(metric(&body, "hydrant_messages_published_total "), 1);
+
+    drop(sse);
+    server.stop().await;
+}
+
+#[tokio::test]
 async fn metrics_reflect_connections_and_publishes() {
     let mut server = start().await;
     let sse = SseClient::connect(server.addr, "room").await;

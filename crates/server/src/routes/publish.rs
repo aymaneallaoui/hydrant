@@ -12,6 +12,9 @@ pub async fn publish(
     topic: TopicName,
     body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
+    if body.is_empty() {
+        return Err(ApiError::EmptyPayload);
+    }
     let payload = body.try_into().map_err(|_| ApiError::InvalidPayload)?;
     let receivers = state.hub().publish(&topic, payload)?;
     Ok((

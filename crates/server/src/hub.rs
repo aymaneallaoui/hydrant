@@ -136,8 +136,8 @@ impl Hub {
     #[must_use]
     pub fn new(capacity: usize, policy: SlowConsumerPolicy, metrics: Arc<Metrics>) -> Self {
         assert!(
-            (1..=usize::MAX >> 1).contains(&capacity),
-            "topic capacity out of range"
+            (1..=usize::MAX >> 1).contains(&capacity) && capacity.is_power_of_two(),
+            "topic capacity must be a power of two"
         );
         Self {
             inner: Arc::new(Inner {
@@ -279,6 +279,12 @@ mod tests {
 
     fn hub(capacity: usize, policy: SlowConsumerPolicy) -> Hub {
         Hub::new(capacity, policy, Arc::default())
+    }
+
+    #[test]
+    #[should_panic(expected = "power of two")]
+    fn new_rejects_non_power_of_two_capacity() {
+        let _ = hub(300, SlowConsumerPolicy::Disconnect);
     }
 
     #[test]
