@@ -10,10 +10,11 @@ use tokio_tungstenite::{
     },
 };
 
-use super::{CONNECT_TIMEOUT, ConnectFailure, Ctx, EndReason, Job, stopped};
+use super::{ConnectFailure, Ctx, EndReason, Job, connect_or_stop, stopped};
 use crate::stats::SeqTracker;
 
 const READ_BUFFER_BYTES: usize = 4096;
+const FRAME_HEADROOM_BYTES: usize = 4096;
 const CLOSE_GRACE: Duration = Duration::from_secs(2);
 
 pub async fn run(job: Job) {
@@ -25,9 +26,7 @@ pub async fn run(job: Job) {
         alive: _alive,
     } = job;
 
-    let connected = timeout(CONNECT_TIMEOUT, connect(&ctx))
-        .await
-        .unwrap_or_else(|_| Err(ConnectFailure::new("connect timed out")));
+    let connected = connect_or_stop(&mut stop, connect(&ctx)).await;
     drop(permit);
     let mut ws = match connected {
         Ok(ws) => {
@@ -74,7 +73,10 @@ async fn connect(ctx: &Ctx) -> Result<WebSocketStream<TcpStream>, ConnectFailure
         .await
         .map_err(|err| ConnectFailure::from_io(&err))?;
     let url = format!("ws://{}/topics/{}/ws", ctx.target.authority, ctx.topic);
+    let limit = ctx.payload_bytes.saturating_add(FRAME_HEADROOM_BYTES);
     let config = WebSocketConfig::default()
+        .max_message_size(Some(limit))
+        .max_frame_size(Some(limit))
         .read_buffer_size(READ_BUFFER_BYTES)
         .write_buffer_size(0);
     let (ws, _response) = client_async_with_config(url, tcp, Some(config))

@@ -44,6 +44,7 @@ pub async fn run(args: Args) -> anyhow::Result<Report> {
         shared: Arc::clone(&shared),
         target: target.clone(),
         topic: args.topic.clone(),
+        payload_bytes: args.payload_bytes,
         transport: args.transport,
         connected: connected_tx,
     });

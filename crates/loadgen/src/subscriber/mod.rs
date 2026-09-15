@@ -2,12 +2,17 @@ pub mod sse;
 pub mod ws;
 
 use std::{
-    fmt, io,
+    fmt,
+    future::Future,
+    io,
     sync::{Arc, atomic::Ordering::Relaxed},
     time::Duration,
 };
 
-use tokio::sync::{OwnedSemaphorePermit, mpsc, watch};
+use tokio::{
+    sync::{OwnedSemaphorePermit, mpsc, watch},
+    time::timeout,
+};
 
 use crate::{
     cli::{Target, Transport},
@@ -22,6 +27,7 @@ pub struct Ctx {
     pub shared: Arc<Shared>,
     pub target: Target,
     pub topic: String,
+    pub payload_bytes: usize,
     pub transport: Transport,
     pub connected: mpsc::UnboundedSender<()>,
 }
@@ -55,6 +61,19 @@ pub async fn run(job: Job) {
 
 async fn stopped(stop: &mut watch::Receiver<bool>) {
     let _ = stop.wait_for(|stopped| *stopped).await;
+}
+
+async fn connect_or_stop<T>(
+    stop: &mut watch::Receiver<bool>,
+    connect: impl Future<Output = Result<T, ConnectFailure>>,
+) -> Result<T, ConnectFailure> {
+    tokio::select! {
+        biased;
+        () = stopped(stop) => Err(ConnectFailure::new("interrupted during connect")),
+        result = timeout(CONNECT_TIMEOUT, connect) => {
+            result.unwrap_or_else(|_| Err(ConnectFailure::new("connect timed out")))
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -101,5 +120,67 @@ impl fmt::Display for EndReason {
             Self::Eof => f.write_str("eof"),
             Self::Error(message) => write!(f, "error: {message}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use tokio::{net::TcpListener, sync::Semaphore};
+
+    use super::*;
+
+    async fn stop_ends_a_stalled_handshake(transport: Transport) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let (connected_tx, mut connected_rx) = mpsc::unbounded_channel();
+        let shared = Arc::new(Shared::new());
+        let ctx = Arc::new(Ctx {
+            shared: Arc::clone(&shared),
+            target: Target {
+                addr,
+                authority: addr.to_string(),
+            },
+            topic: "t".to_owned(),
+            payload_bytes: 64,
+            transport,
+            connected: connected_tx,
+        });
+        let (stop_tx, stop_rx) = watch::channel(false);
+        let (alive_tx, mut alive_rx) = mpsc::channel::<()>(1);
+        let permit = Arc::new(Semaphore::new(1))
+            .acquire_owned()
+            .await
+            .expect("permit");
+        let task = tokio::spawn(run(Job {
+            ctx,
+            index: 0,
+            permit,
+            stop: stop_rx,
+            alive: alive_tx,
+        }));
+
+        let (_silent, _) = listener.accept().await.expect("accept");
+        stop_tx.send(true).expect("send stop");
+
+        let bound = CONNECT_TIMEOUT / 6;
+        timeout(bound, alive_rx.recv())
+            .await
+            .expect("subscriber must end promptly after stop");
+        task.await.expect("task");
+        connected_rx.recv().await.expect("attempt is reported");
+        assert_eq!(shared.established.load(Relaxed), 0);
+        assert_eq!(shared.connect_failed.load(Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn stop_ends_a_stalled_ws_handshake_promptly() {
+        stop_ends_a_stalled_handshake(Transport::Ws).await;
+    }
+
+    #[tokio::test]
+    async fn stop_ends_a_stalled_sse_handshake_promptly() {
+        stop_ends_a_stalled_handshake(Transport::Sse).await;
     }
 }

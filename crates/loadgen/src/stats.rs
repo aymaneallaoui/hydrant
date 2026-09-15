@@ -697,6 +697,20 @@ mod tests {
     }
 
     #[test]
+    fn throughput_covers_the_full_publish_phase_when_receives_stop_early() {
+        let shared = Shared::new();
+        shared.publish_started(0);
+        shared.publish_ended(10_000_000_000);
+        for second_fraction in 0..1000_u64 {
+            shared.record_latency(0, second_fraction * 1_000_000, 0);
+        }
+        let report = shared.report(&args(), &facts());
+        assert_eq!(report.deliveries.received, 1000);
+        assert!((report.throughput.deliveries_per_sec - 100.0).abs() < 1e-9);
+        assert!((report.throughput.publish_phase_secs - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn empty_run_has_no_latency_and_zero_loss() {
         let report = Shared::new().report(&args(), &facts());
         assert!(report.latency_ms.is_none());

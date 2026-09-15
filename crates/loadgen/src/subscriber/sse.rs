@@ -1,8 +1,8 @@
 use std::{cell::RefCell, fmt, io};
 
-use tokio::{io::AsyncWriteExt, net::TcpStream, time::timeout};
+use tokio::{io::AsyncWriteExt, net::TcpStream};
 
-use super::{CONNECT_TIMEOUT, ConnectFailure, Ctx, EndReason, Job, stopped};
+use super::{ConnectFailure, Ctx, EndReason, Job, connect_or_stop, stopped};
 use crate::stats::SeqTracker;
 
 const SCRATCH_BYTES: usize = 16 * 1024;
@@ -25,9 +25,7 @@ pub async fn run(job: Job) {
     let mut on_event = |data: &[u8]| ctx.shared.record_payload(index, &mut seqs, data);
     let mut decoder = SseDecoder::new();
 
-    let connected = timeout(CONNECT_TIMEOUT, connect(&ctx, &mut decoder, &mut on_event))
-        .await
-        .unwrap_or_else(|_| Err(ConnectFailure::new("connect timed out")));
+    let connected = connect_or_stop(&mut stop, connect(&ctx, &mut decoder, &mut on_event)).await;
     drop(permit);
     let stream = match connected {
         Ok(stream) => {
@@ -130,6 +128,7 @@ async fn read_step(
 pub enum DecodeError {
     Status(u16),
     BadHead,
+    NotEventStream(Option<String>),
     HeadTooLarge,
     BadChunk,
 }
@@ -139,6 +138,13 @@ impl fmt::Display for DecodeError {
         match self {
             Self::Status(code) => write!(f, "sse subscribe rejected: HTTP {code}"),
             Self::BadHead => f.write_str("malformed HTTP response head"),
+            Self::NotEventStream(Some(content_type)) => write!(
+                f,
+                "sse subscribe got content-type {content_type:?}, expected text/event-stream"
+            ),
+            Self::NotEventStream(None) => f.write_str(
+                "sse subscribe response has no content-type, expected text/event-stream",
+            ),
             Self::HeadTooLarge => f.write_str("HTTP response head too large"),
             Self::BadChunk => f.write_str("malformed chunked encoding"),
         }
@@ -217,12 +223,27 @@ fn parse_head(head: &[u8]) -> Result<bool, DecodeError> {
     if status != 200 {
         return Err(DecodeError::Status(status));
     }
-    Ok(lines.any(|line| {
-        line.split_once(':').is_some_and(|(name, value)| {
-            name.trim().eq_ignore_ascii_case("transfer-encoding")
-                && value.to_ascii_lowercase().contains("chunked")
-        })
-    }))
+    let mut chunked = false;
+    let mut content_type = None;
+    for (name, value) in lines.filter_map(|line| line.split_once(':')) {
+        let name = name.trim();
+        if name.eq_ignore_ascii_case("transfer-encoding") {
+            chunked |= value.to_ascii_lowercase().contains("chunked");
+        } else if name.eq_ignore_ascii_case("content-type") {
+            content_type = Some(value.trim());
+        }
+    }
+    if !content_type.is_some_and(is_event_stream) {
+        return Err(DecodeError::NotEventStream(content_type.map(str::to_owned)));
+    }
+    Ok(chunked)
+}
+
+fn is_event_stream(content_type: &str) -> bool {
+    content_type
+        .split(';')
+        .next()
+        .is_some_and(|media| media.trim().eq_ignore_ascii_case("text/event-stream"))
 }
 
 impl Body {
@@ -472,7 +493,7 @@ mod tests {
         let mut decoder = SseDecoder::new();
         let err = decoder
             .feed(
-                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n",
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n",
                 &mut |_| {},
             )
             .expect_err("chunk");
@@ -484,10 +505,35 @@ mod tests {
         let mut decoder = SseDecoder::new();
         let mut events = Vec::new();
         let bytes =
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n9;ext=1\r\ndata: a\n\n\r\n";
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n9;ext=1\r\ndata: a\n\n\r\n";
         decoder
             .feed(bytes, &mut |data| events.push(data.to_vec()))
             .expect("decode");
         assert_eq!(events, vec![b"a".to_vec()]);
+    }
+
+    fn head_result(head: &str) -> Result<bool, DecodeError> {
+        parse_head(head.as_bytes())
+    }
+
+    #[test]
+    fn accepts_event_stream_content_types() {
+        for value in ["text/event-stream", "Text/Event-Stream; charset=utf-8"] {
+            let head = format!("HTTP/1.1 200 OK\r\ncontent-type: {value}");
+            assert_eq!(head_result(&head), Ok(false), "{value}");
+        }
+    }
+
+    #[test]
+    fn rejects_other_or_missing_content_types() {
+        let err = head_result("HTTP/1.1 200 OK\r\nContent-Type: text/html").expect_err("html");
+        assert_eq!(
+            err,
+            DecodeError::NotEventStream(Some("text/html".to_owned()))
+        );
+        assert!(err.to_string().contains("text/html"));
+        let err =
+            head_result("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked").expect_err("missing");
+        assert_eq!(err, DecodeError::NotEventStream(None));
     }
 }
