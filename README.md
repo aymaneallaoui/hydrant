@@ -42,13 +42,13 @@ curl -X POST --data 'hello' http://127.0.0.1:8080/topics/news
 # {"receivers":2}
 ```
 
-Publishing to a topic with no subscribers is accepted and returns `{"receivers":0}`. A payload over the limit gets 413 and a non-UTF-8 payload gets 400. Once shutdown has begun, publish and subscribe get 503 and the publish is not counted.
+Publishing to a topic with no subscribers is accepted and returns `{"receivers":0}`. A payload over the limit gets 413, a non-UTF-8 payload gets 400, and an empty body gets 400 (an SSE event with no data is not a message, so it could not be delivered to every transport) and is not counted as published. Once shutdown has begun, publish and subscribe get 503 and the publish is not counted.
 
 WebSocket delivery is byte-exact. SSE is line-oriented: a `\n`, `\r` or `\r\n` in a payload is sent as a line break between `data:` fields, so a client rejoining them with `\n` sees `\r` as `\n` and `\r\n` as two `\n`. SSE delivery is therefore not byte-exact for payloads containing carriage returns.
 
 ## Backpressure
 
-Each topic keeps one bounded ring of the last `HYDRANT_TOPIC_CAPACITY` messages, shared by all of its subscribers; every subscriber has its own read position in it, so the ring is per topic and not per connection. tokio rounds the capacity up to the next power of two, so `HYDRANT_TOPIC_CAPACITY=300` retains 512 messages. A ring slot is held until every subscriber has moved past it, so the worst case per topic is the retained message count times `HYDRANT_MAX_MESSAGE_BYTES` (512 x 64 KiB = 32 MiB for the example above), and a stalled subscriber can keep a full ring alive.
+Each topic keeps one bounded ring of the last `HYDRANT_TOPIC_CAPACITY` messages, shared by all of its subscribers; every subscriber has its own read position in it, so the ring is per topic and not per connection. The capacity must be a power of two (tokio's broadcast channel would otherwise round it up and retain more than configured), so `HYDRANT_TOPIC_CAPACITY=300` is rejected at startup, naming 256 and 512 as the nearest valid values. A ring slot is held until every subscriber has moved past it, so the worst case per topic is the retained message count times `HYDRANT_MAX_MESSAGE_BYTES` (512 x 64 KiB = 32 MiB at a capacity of 512), and a stalled subscriber can keep a full ring alive.
 
 A subscriber that falls more than the retained count behind is handled by `HYDRANT_SLOW_CONSUMER_POLICY`. With `disconnect` (the default) the connection is ended: WebSocket gets close code 1008 and SSE just ends. With `drop` the skipped messages are counted in `hydrant_messages_dropped_total` and the subscriber continues from the oldest retained message.
 
@@ -150,7 +150,7 @@ Every option is available as an environment variable and as a CLI flag.
 | `HYDRANT_LOG_LEVEL` | `--log-level` | `info` | tracing filter directive, e.g. `info,tower_http=debug` |
 | `HYDRANT_LOG_FORMAT` | `--log-format` | `pretty` | `pretty` or `json` |
 | `HYDRANT_SHUTDOWN_TIMEOUT_SECS` | `--shutdown-timeout-secs` | `10` | max seconds to drain connections after SIGTERM or SIGINT |
-| `HYDRANT_TOPIC_CAPACITY` | `--topic-capacity` | `256` | messages retained per topic, at least 1; rounded up to a power of two |
+| `HYDRANT_TOPIC_CAPACITY` | `--topic-capacity` | `256` | messages retained per topic; must be a power of two (1, 2, 4, ... 256, 512) |
 | `HYDRANT_SLOW_CONSUMER_POLICY` | `--slow-consumer-policy` | `disconnect` | `disconnect` or `drop` for subscribers that lag past the capacity |
 | `HYDRANT_SEND_TIMEOUT_SECS` | `--send-timeout-secs` | `10` | max seconds a WebSocket or SSE send may block before the subscriber is disconnected, at least 1 |
 | `HYDRANT_SSE_KEEPALIVE_SECS` | `--sse-keepalive-secs` | `15` | seconds between SSE keep-alive comments, at least 1 |
