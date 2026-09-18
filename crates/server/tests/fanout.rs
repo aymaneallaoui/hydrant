@@ -43,6 +43,21 @@ async fn websocket_subscriber_receives_published_message() {
 }
 
 #[tokio::test]
+async fn websocket_delivers_a_max_size_payload_byte_exact() {
+    let mut server = start().await;
+    let (mut ws, _) = connect_async(format!("ws://{}/topics/room/ws", server.addr))
+        .await
+        .expect("ws connect");
+    let payload = "x".repeat(Settings::default().max_message_bytes);
+
+    assert_eq!(server.publish("room", payload.as_bytes()).await.0, 202);
+    assert_eq!(next_ws(&mut ws).await, Message::text(payload));
+
+    drop(ws);
+    server.stop().await;
+}
+
+#[tokio::test]
 async fn sse_subscriber_receives_id_and_data() {
     let mut server = start().await;
     let mut sse = SseClient::connect(server.addr, "room").await;
