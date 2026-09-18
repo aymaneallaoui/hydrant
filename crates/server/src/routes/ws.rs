@@ -17,6 +17,7 @@ use crate::{
 };
 
 const CLOSE_REPLY_GRACE: Duration = Duration::from_secs(1);
+const SOCKET_READ_BUFFER_BYTES: usize = 4096;
 
 pub async fn subscribe(
     State(state): State<AppState>,
@@ -29,6 +30,8 @@ pub async fn subscribe(
     let subscription = state.hub().subscribe(&topic)?;
     let metrics = state.metrics().clone();
     Ok(upgrade
+        .read_buffer_size(SOCKET_READ_BUFFER_BYTES)
+        .write_buffer_size(0)
         .max_message_size(settings.max_message_bytes)
         .max_frame_size(settings.max_message_bytes)
         .on_upgrade(move |socket| pump(socket, subscription, guard, metrics, send_timeout)))
