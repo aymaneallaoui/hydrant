@@ -7,11 +7,27 @@ pub mod shutdown;
 pub mod state;
 pub mod telemetry;
 
-use std::{future::IntoFuture, sync::Arc, time::Duration};
+use std::{future::IntoFuture, io, net::SocketAddr, sync::Arc, time::Duration};
 
-use tokio::{net::TcpListener, sync::Notify};
+use tokio::{
+    net::{TcpListener, TcpSocket},
+    sync::Notify,
+};
 
 use crate::{config::Settings, routes::router, state::AppState};
+
+/// Binds like `TcpListener::bind` (`SO_REUSEADDR` on) but with an explicit listen backlog.
+/// Must be called inside a tokio runtime.
+pub fn bind_listener(addr: SocketAddr, backlog: u32) -> io::Result<TcpListener> {
+    let socket = if addr.is_ipv4() {
+        TcpSocket::new_v4()?
+    } else {
+        TcpSocket::new_v6()?
+    };
+    socket.set_reuseaddr(true)?;
+    socket.bind(addr)?;
+    socket.listen(backlog)
+}
 
 pub async fn serve(
     listener: TcpListener,

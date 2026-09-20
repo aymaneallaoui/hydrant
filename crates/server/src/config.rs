@@ -8,6 +8,7 @@ const DEFAULT_TOPIC_CAPACITY: usize = 256;
 const DEFAULT_SEND_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_SSE_KEEPALIVE_SECS: u64 = 15;
 const DEFAULT_MAX_MESSAGE_BYTES: usize = 65536;
+pub const DEFAULT_LISTEN_BACKLOG: u32 = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum LogFormat {
@@ -20,6 +21,14 @@ pub enum LogFormat {
 pub struct Config {
     #[arg(long, env = "HYDRANT_LISTEN_ADDR", default_value = "127.0.0.1:8080")]
     pub listen_addr: SocketAddr,
+
+    #[arg(
+        long,
+        env = "HYDRANT_LISTEN_BACKLOG",
+        value_parser = parse_listen_backlog,
+        default_value_t = DEFAULT_LISTEN_BACKLOG,
+    )]
+    pub listen_backlog: u32,
 
     #[arg(long, env = "HYDRANT_LOG_LEVEL", default_value = "info")]
     pub log_level: String,
@@ -134,6 +143,15 @@ fn parse_positive_secs(raw: &str) -> Result<u64, String> {
     }
 }
 
+fn parse_listen_backlog(raw: &str) -> Result<u32, String> {
+    let value: u32 = raw.parse().map_err(|e| format!("{e}"))?;
+    if (1..=i32::MAX as u32).contains(&value) {
+        Ok(value)
+    } else {
+        Err("must be between 1 and 2147483647".to_owned())
+    }
+}
+
 fn parse_max_connections(raw: &str) -> Result<usize, String> {
     let value: usize = raw.parse().map_err(|e| format!("{e}"))?;
     if value == 0 {
@@ -161,6 +179,14 @@ mod tests {
         let err = parse_capacity("257").expect_err("257 is not a power of two");
         assert!(err.contains("256") && err.contains("512"), "{err}");
         assert!(parse_capacity("3").expect_err("3").contains("2 and 4"));
+    }
+
+    #[test]
+    fn backlog_accepts_positive_and_rejects_zero() {
+        assert_eq!(parse_listen_backlog("4096"), Ok(4096));
+        assert!(parse_listen_backlog("0").is_err());
+        assert!(parse_listen_backlog("-1").is_err());
+        assert!(parse_listen_backlog("2147483648").is_err());
     }
 
     #[test]
