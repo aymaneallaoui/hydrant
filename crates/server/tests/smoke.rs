@@ -93,3 +93,40 @@ async fn publish_while_closed_returns_503_and_is_not_counted() {
     assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(state.metrics().published_total(), 0);
 }
+
+#[tokio::test]
+async fn bind_listener_serves_with_custom_backlog_on_v4_and_v6() {
+    for (addr, backlog) in [("127.0.0.1:0", 4096_u32), ("[::1]:0", 1)] {
+        let Ok(listener) = hydrant_server::bind_listener(addr.parse().expect("addr"), backlog)
+        else {
+            assert_eq!(addr, "[::1]:0", "only IPv6 may be unavailable");
+            continue;
+        };
+        let local = listener.local_addr().expect("local addr");
+        let (tx, rx) = oneshot::channel::<()>();
+        let server = tokio::spawn(serve(
+            listener,
+            Settings::default(),
+            Duration::from_secs(1),
+            async move {
+                let _ = rx.await;
+            },
+        ));
+        let mut stream = tokio::net::TcpStream::connect(local)
+            .await
+            .expect("connect");
+        tokio::io::AsyncWriteExt::write_all(
+            &mut stream,
+            b"GET /healthz HTTP/1.1\r\nhost: x\r\nconnection: close\r\n\r\n",
+        )
+        .await
+        .expect("write");
+        let mut out = String::new();
+        tokio::io::AsyncReadExt::read_to_string(&mut stream, &mut out)
+            .await
+            .expect("read");
+        assert!(out.starts_with("HTTP/1.1 200"), "{out}");
+        let _ = tx.send(());
+        server.await.expect("join").expect("serve");
+    }
+}
