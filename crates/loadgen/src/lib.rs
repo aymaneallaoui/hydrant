@@ -13,7 +13,7 @@ use std::{
 use anyhow::{Context, bail};
 use tokio::{
     sync::{Semaphore, mpsc, watch},
-    time::{Instant, sleep, timeout},
+    time::{Instant, MissedTickBehavior, interval, sleep, timeout},
 };
 
 use crate::{
@@ -24,6 +24,7 @@ use crate::{
 };
 
 const DRAIN_POLL: Duration = Duration::from_millis(5);
+const PROGRESS_EVERY: Duration = Duration::from_secs(1);
 const TEARDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn run(args: Args) -> anyhow::Result<Report> {
@@ -34,6 +35,7 @@ pub async fn run(args: Args) -> anyhow::Result<Report> {
         _ = &mut ctrl_c => bail!("interrupted before the run started"),
     };
     let connections = args.connections()?;
+    let targets = cli::spread_targets(&target, args.spread_loopback)?;
     let shared = Arc::new(Shared::new());
     let mut interrupted = false;
 
@@ -42,7 +44,7 @@ pub async fn run(args: Args) -> anyhow::Result<Report> {
     let (connected_tx, mut connected_rx) = mpsc::unbounded_channel();
     let ctx = Arc::new(Ctx {
         shared: Arc::clone(&shared),
-        target: target.clone(),
+        targets,
         topic: args.topic.clone(),
         payload_bytes: args.payload_bytes,
         transport: args.transport,
@@ -59,6 +61,7 @@ pub async fn run(args: Args) -> anyhow::Result<Report> {
     }
 
     let connect_started = Instant::now();
+    let progress = tokio::spawn(report_progress(Arc::clone(&shared), connections));
     let connect_phase = async {
         for index in 0..connections {
             let permit = Arc::clone(&permits)
@@ -82,14 +85,20 @@ pub async fn run(args: Args) -> anyhow::Result<Report> {
         () = connect_phase => {}
         _ = &mut ctrl_c => interrupted = true,
     }
+    progress.abort();
     let connect_elapsed = connect_started.elapsed();
 
     let established = shared.established.load(Relaxed);
     let fatal = (!interrupted && established == 0).then(|| setup_failure(&shared, connections));
 
     if fatal.is_none() && !interrupted {
+        eprintln!(
+            "loadgen: all connected: established={established} failed={} in {:.3}s",
+            shared.connect_failed.load(Relaxed),
+            connect_elapsed.as_secs_f64()
+        );
         tokio::select! {
-            () = publisher::run(&shared, publisher, args.rate, args.duration(), args.payload_bytes) => {}
+            () = hold_then_publish(&shared, publisher, &args) => {}
             _ = &mut ctrl_c => interrupted = true,
         }
     }
@@ -107,6 +116,7 @@ pub async fn run(args: Args) -> anyhow::Result<Report> {
         }
     }
 
+    eprintln!("loadgen: disconnecting");
     let _ = stop_tx.send(true);
     let _ = timeout(TEARDOWN_TIMEOUT, alive_rx.recv()).await;
 
@@ -120,6 +130,33 @@ pub async fn run(args: Args) -> anyhow::Result<Report> {
             interrupted,
         },
     ))
+}
+
+async fn hold_then_publish(shared: &Shared, publisher: Publisher, args: &Args) {
+    sleep(args.hold_idle()).await;
+    eprintln!("loadgen: publish starting");
+    publisher::run(
+        shared,
+        publisher,
+        args.rate,
+        args.duration(),
+        args.payload_bytes,
+    )
+    .await;
+}
+
+async fn report_progress(shared: Arc<Shared>, requested: usize) {
+    let mut tick = interval(PROGRESS_EVERY);
+    tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    tick.tick().await;
+    loop {
+        tick.tick().await;
+        eprintln!(
+            "loadgen: connecting: established={} failed={} of {requested}",
+            shared.established.load(Relaxed),
+            shared.connect_failed.load(Relaxed)
+        );
+    }
 }
 
 fn expected(shared: &Shared) -> u64 {

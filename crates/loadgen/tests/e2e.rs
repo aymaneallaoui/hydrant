@@ -8,8 +8,15 @@ use tokio::{net::TcpListener, sync::oneshot};
 const CONNECTIONS: u64 = 20;
 
 async fn start_server() -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let url = format!("http://{}", listener.local_addr().expect("local addr"));
+    start_server_on("127.0.0.1:0").await
+}
+
+async fn start_server_on(bind: &str) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind(bind).await.expect("bind");
+    let url = format!(
+        "http://127.0.0.1:{}",
+        listener.local_addr().expect("local addr").port()
+    );
     let (tx, rx) = oneshot::channel::<()>();
     let handle = tokio::spawn(async move {
         serve(
@@ -172,6 +179,62 @@ async fn oversized_payload_fails_every_publish_with_http_413() {
     assert_eq!(report.publish.failed, 5);
     assert_eq!(report.publish.first_error.as_deref(), Some("HTTP 413"));
     assert_eq!(report.deliveries.received, 0);
+
+    shutdown.send(()).expect("shutdown");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn spread_loopback_reaches_every_address_and_delivers() {
+    let (url, shutdown, server) = start_server_on("0.0.0.0:0").await;
+    let args = Args::try_parse_from([
+        "loadgen",
+        "--url",
+        &url,
+        "--connections",
+        "20",
+        "--spread-loopback",
+        "4",
+        "--rate",
+        "5",
+        "--duration",
+        "1",
+    ])
+    .expect("args");
+
+    let report = run(args).await.expect("run");
+
+    assert_eq!(report.connections.established, 20);
+    assert_eq!(report.connections.failed, 0);
+    assert_eq!(report.deliveries.received, report.publish.ok * 20);
+    assert_eq!(report.params.spread_loopback, 4);
+
+    shutdown.send(()).expect("shutdown");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn spread_loopback_is_round_robin_over_addresses() {
+    let (url, shutdown, server) = start_server().await;
+    let args = Args::try_parse_from([
+        "loadgen",
+        "--url",
+        &url,
+        "--connections",
+        "20",
+        "--spread-loopback",
+        "2",
+        "--rate",
+        "5",
+        "--duration",
+        "1",
+    ])
+    .expect("args");
+
+    let report = run(args).await.expect("run");
+
+    assert_eq!(report.connections.established, 10);
+    assert_eq!(report.connections.failed, 10);
 
     shutdown.send(()).expect("shutdown");
     server.await.expect("server task");

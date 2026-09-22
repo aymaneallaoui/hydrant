@@ -26,7 +26,7 @@ pub async fn run(job: Job) {
         alive: _alive,
     } = job;
 
-    let connected = connect_or_stop(&mut stop, connect(&ctx)).await;
+    let connected = connect_or_stop(&mut stop, connect(&ctx, index)).await;
     drop(permit);
     let mut ws = match connected {
         Ok(ws) => {
@@ -68,11 +68,12 @@ pub async fn run(job: Job) {
     }
 }
 
-async fn connect(ctx: &Ctx) -> Result<WebSocketStream<TcpStream>, ConnectFailure> {
-    let tcp = TcpStream::connect(ctx.target.addr)
+async fn connect(ctx: &Ctx, index: usize) -> Result<WebSocketStream<TcpStream>, ConnectFailure> {
+    let target = ctx.target_for(index);
+    let tcp = TcpStream::connect(target.addr)
         .await
         .map_err(|err| ConnectFailure::from_io(&err))?;
-    let url = format!("ws://{}/topics/{}/ws", ctx.target.authority, ctx.topic);
+    let url = format!("ws://{}/topics/{}/ws", target.authority, ctx.topic);
     let limit = ctx.payload_bytes.saturating_add(FRAME_HEADROOM_BYTES);
     let config = WebSocketConfig::default()
         .max_message_size(Some(limit))
