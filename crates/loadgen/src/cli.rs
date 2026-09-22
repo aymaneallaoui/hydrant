@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::PathBuf,
+    time::Duration,
+};
 
 use tokio::{net::TcpStream, time::timeout};
 
@@ -53,6 +57,29 @@ pub struct Args {
     #[arg(long, default_value_t = 5)]
     pub drain_timeout: u64,
 
+    #[arg(
+        long,
+        value_name = "N",
+        default_value_t = 1,
+        value_parser = clap::value_parser!(u32).range(1..),
+        help = "Spread subscriber connections round-robin over N consecutive IPv4 addresses \
+starting at the --url host, which must be in 127.0.0.0/8; the publisher keeps the --url host",
+        long_help = "Spread subscriber connections round-robin over N consecutive IPv4 \
+addresses starting at the --url host (for example 127.0.0.1 to 127.0.0.64 with N=64). The \
+host must be in 127.0.0.0/8, every address in that block is local, and the server must \
+listen on 0.0.0.0. This lifts the per-destination ephemeral port cap without root. The \
+publisher keeps using the --url host."
+    )]
+    pub spread_loopback: u32,
+
+    #[arg(
+        long,
+        value_name = "SECS",
+        default_value_t = 0,
+        help = "Hold established connections idle for SECS before publishing"
+    )]
+    pub hold_idle: u64,
+
     #[arg(long, value_name = "PATH")]
     pub json: Option<PathBuf>,
 
@@ -69,6 +96,11 @@ impl Args {
     #[must_use]
     pub fn drain_timeout(&self) -> Duration {
         Duration::from_secs(self.drain_timeout)
+    }
+
+    #[must_use]
+    pub fn hold_idle(&self) -> Duration {
+        Duration::from_secs(self.hold_idle)
     }
 
     pub fn connections(&self) -> anyhow::Result<usize> {
@@ -150,6 +182,38 @@ impl Candidates {
             failures.join("; ")
         )
     }
+}
+
+pub fn spread_targets(base: &Target, count: u32) -> anyhow::Result<Vec<Target>> {
+    if count <= 1 {
+        return Ok(vec![base.clone()]);
+    }
+    let IpAddr::V4(first) = base.addr.ip() else {
+        bail!(
+            "--spread-loopback needs an IPv4 --url host, got {}",
+            base.addr.ip()
+        );
+    };
+    if first.octets()[0] != 127 {
+        bail!("--spread-loopback needs a --url host in 127.0.0.0/8, got {first}");
+    }
+    let start = u32::from(first);
+    let last = start
+        .checked_add(count - 1)
+        .map(Ipv4Addr::from)
+        .filter(|addr| addr.octets()[0] == 127)
+        .with_context(|| format!("--spread-loopback {count} from {first} leaves 127.0.0.0/8"))?;
+    let port = base.addr.port();
+    debug_assert!(last >= first);
+    Ok((0..count)
+        .map(|offset| {
+            let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(start + offset)), port);
+            Target {
+                addr,
+                authority: addr.to_string(),
+            }
+        })
+        .collect())
 }
 
 pub async fn resolve_target(url: &str) -> anyhow::Result<Target> {
@@ -251,6 +315,54 @@ mod tests {
             .expect_err("tls");
         assert!(err.to_string().contains("TLS"), "{err}");
         assert!(resolve_candidates("127.0.0.1:80").await.is_err());
+    }
+
+    fn base_target(addr: &str) -> Target {
+        let addr: SocketAddr = addr.parse().expect("addr");
+        Target {
+            addr,
+            authority: addr.to_string(),
+        }
+    }
+
+    #[test]
+    fn spread_targets_are_consecutive_and_keep_the_port() {
+        let targets = spread_targets(&base_target("127.0.0.254:9000"), 4).expect("spread");
+        let addrs: Vec<String> = targets.iter().map(|t| t.addr.to_string()).collect();
+        assert_eq!(
+            addrs,
+            [
+                "127.0.0.254:9000",
+                "127.0.0.255:9000",
+                "127.0.1.0:9000",
+                "127.0.1.1:9000"
+            ]
+        );
+        assert_eq!(targets[3].authority, "127.0.1.1:9000");
+    }
+
+    #[test]
+    fn spread_of_one_is_the_base_target() {
+        let base = base_target("10.1.2.3:80");
+        let targets = spread_targets(&base, 1).expect("spread");
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].addr, base.addr);
+    }
+
+    #[test]
+    fn spread_rejects_non_loopback_ipv6_and_overflow() {
+        assert!(spread_targets(&base_target("10.0.0.1:80"), 2).is_err());
+        assert!(spread_targets(&base_target("[::1]:80"), 2).is_err());
+        assert!(spread_targets(&base_target("127.255.255.255:80"), 2).is_err());
+        assert!(spread_targets(&base_target("127.255.255.255:80"), 1).is_ok());
+    }
+
+    #[test]
+    fn spread_and_hold_flags_parse() {
+        let args = Args::try_parse_from(["loadgen", "--spread-loopback", "64", "--hold-idle", "5"])
+            .expect("args");
+        assert_eq!((args.spread_loopback, args.hold_idle), (64, 5));
+        assert!(Args::try_parse_from(["loadgen", "--spread-loopback", "0"]).is_err());
     }
 
     fn closed_port_addr() -> SocketAddr {

@@ -25,7 +25,8 @@ pub async fn run(job: Job) {
     let mut on_event = |data: &[u8]| ctx.shared.record_payload(index, &mut seqs, data);
     let mut decoder = SseDecoder::new();
 
-    let connected = connect_or_stop(&mut stop, connect(&ctx, &mut decoder, &mut on_event)).await;
+    let connected =
+        connect_or_stop(&mut stop, connect(&ctx, index, &mut decoder, &mut on_event)).await;
     drop(permit);
     let stream = match connected {
         Ok(stream) => {
@@ -57,15 +58,17 @@ pub async fn run(job: Job) {
 
 async fn connect(
     ctx: &Ctx,
+    index: usize,
     decoder: &mut SseDecoder,
     on_event: &mut impl FnMut(&[u8]),
 ) -> Result<TcpStream, ConnectFailure> {
-    let mut stream = TcpStream::connect(ctx.target.addr)
+    let target = ctx.target_for(index);
+    let mut stream = TcpStream::connect(target.addr)
         .await
         .map_err(|err| ConnectFailure::from_io(&err))?;
     let request = format!(
         "GET /topics/{}/sse HTTP/1.1\r\nHost: {}\r\nAccept: text/event-stream\r\nCache-Control: no-cache\r\n\r\n",
-        ctx.topic, ctx.target.authority
+        ctx.topic, target.authority
     );
     stream
         .write_all(request.as_bytes())

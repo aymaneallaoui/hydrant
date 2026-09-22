@@ -317,6 +317,8 @@ pub struct Params {
     pub payload_bytes: usize,
     pub connect_concurrency: u64,
     pub drain_timeout_secs: u64,
+    pub spread_loopback: u32,
+    pub hold_idle_secs: u64,
 }
 
 impl Params {
@@ -331,6 +333,8 @@ impl Params {
             payload_bytes: args.payload_bytes,
             connect_concurrency: args.connect_concurrency,
             drain_timeout_secs: args.drain_timeout,
+            spread_loopback: args.spread_loopback,
+            hold_idle_secs: args.hold_idle,
         }
     }
 }
@@ -461,6 +465,11 @@ impl Report {
                     p.connect_concurrency.to_string(),
                 ),
                 ("drain timeout (s)".into(), p.drain_timeout_secs.to_string()),
+                (
+                    "spread loopback addresses".into(),
+                    p.spread_loopback.to_string(),
+                ),
+                ("hold idle (s)".into(), p.hold_idle_secs.to_string()),
             ],
         );
 

@@ -25,7 +25,7 @@ const ENFILE: i32 = 23;
 
 pub struct Ctx {
     pub shared: Arc<Shared>,
-    pub target: Target,
+    pub targets: Vec<Target>,
     pub topic: String,
     pub payload_bytes: usize,
     pub transport: Transport,
@@ -33,6 +33,10 @@ pub struct Ctx {
 }
 
 impl Ctx {
+    fn target_for(&self, index: usize) -> &Target {
+        &self.targets[index % self.targets.len()]
+    }
+
     fn connect_succeeded(&self) {
         self.shared.established.fetch_add(1, Relaxed);
         let _ = self.connected.send(());
@@ -138,10 +142,10 @@ mod tests {
         let shared = Arc::new(Shared::new());
         let ctx = Arc::new(Ctx {
             shared: Arc::clone(&shared),
-            target: Target {
+            targets: vec![Target {
                 addr,
                 authority: addr.to_string(),
-            },
+            }],
             topic: "t".to_owned(),
             payload_bytes: 64,
             transport,
