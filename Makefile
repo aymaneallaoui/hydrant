@@ -3,10 +3,10 @@ export
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run build test lint fmt fmt-check bench loadgen
+.PHONY: help run build test lint fmt fmt-check bench bench-sweep bench-plot loadgen
 
 help:
-	@echo "targets: run build test lint fmt fmt-check bench loadgen"
+	@echo "targets: run build test lint fmt fmt-check bench bench-sweep bench-plot loadgen"
 
 run:
 	cargo run -p hydrant-server
@@ -31,3 +31,10 @@ bench:
 
 loadgen:
 	cargo run --release -p hydrant-loadgen -- $(ARGS)
+
+bench-sweep: build
+	python3 bench/run.py $(ARGS)
+
+bench-plot:
+	test -x bench/.venv/bin/python || (python3 -m venv bench/.venv && bench/.venv/bin/pip install -q matplotlib==3.11.2)
+	bench/.venv/bin/python bench/plot.py
