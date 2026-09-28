@@ -1,0 +1,49 @@
+parameters
+  url                               http://127.224.21.1:47320
+  topic                             loadgen
+  transport                         sse
+  connections                       50000
+  rate (msg/s)                      1
+  duration (s)                      20
+  payload (bytes)                   64
+  connect concurrency               128
+  drain timeout (s)                 10
+  spread loopback addresses         64
+  hold idle (s)                     10
+
+connections
+  requested                         50000
+  established                       49986
+  failed                            14
+  closed early                      0
+    connect error x14               Connection reset by peer (os error 104)
+  connect phase (s)                 1.988
+  connects per second               25147
+
+publish
+  scheduled                         20
+  ok                                20
+  failed                            0
+  not sent                          0
+  requested rate (msg/s)            1.0
+  achieved rate (msg/s)             1.0
+  publish phase (s)                 20.002
+
+deliveries
+  expected                          999720
+  received                          999720
+  missing                           0
+  loss (%)                          0.000
+  malformed                         0
+  duplicates                        0
+  gaps seen                         0
+  deliveries/s over publish phase   49982
+
+latency (ms)
+  min                               0.697
+  mean                              80.508
+  p50                               81.151
+  p90                               139.775
+  p99                               168.191
+  p99.9                             184.575
+  max                               350.207

@@ -1,0 +1,50 @@
+parameters
+  url                               http://127.224.10.1:47309
+  topic                             loadgen
+  transport                         ws
+  connections                       100000
+  rate (msg/s)                      1
+  duration (s)                      20
+  payload (bytes)                   64
+  connect concurrency               128
+  drain timeout (s)                 10
+  spread loopback addresses         64
+  hold idle (s)                     10
+
+connections
+  requested                         100000
+  established                       99890
+  failed                            110
+  closed early                      0
+    connect error x15               Connection reset by peer (os error 104)
+    connect error x95               connect timed out
+  connect phase (s)                 106.232
+  connects per second               940
+
+publish
+  scheduled                         20
+  ok                                20
+  failed                            0
+  not sent                          0
+  requested rate (msg/s)            1.0
+  achieved rate (msg/s)             1.0
+  publish phase (s)                 20.001
+
+deliveries
+  expected                          1997800
+  received                          1997800
+  missing                           0
+  loss (%)                          0.000
+  malformed                         0
+  duplicates                        0
+  gaps seen                         0
+  deliveries/s over publish phase   99885
+
+latency (ms)
+  min                               0.351
+  mean                              199.399
+  p50                               167.551
+  p90                               313.599
+  p99                               1062.911
+  p99.9                             1667.071
+  max                               1764.351
