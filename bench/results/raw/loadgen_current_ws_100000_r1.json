@@ -1,0 +1,63 @@
+{
+  "params": {
+    "url": "http://127.224.10.1:47309",
+    "topic": "loadgen",
+    "transport": "ws",
+    "connections": 100000,
+    "rate": 1,
+    "duration_secs": 20,
+    "payload_bytes": 64,
+    "connect_concurrency": 128,
+    "drain_timeout_secs": 10,
+    "spread_loopback": 64,
+    "hold_idle_secs": 10
+  },
+  "interrupted": false,
+  "connections": {
+    "requested": 100000,
+    "established": 99890,
+    "failed": 110,
+    "closed_early": 0,
+    "closed_early_reasons": {},
+    "connect_errors": {
+      "Connection reset by peer (os error 104)": 15,
+      "connect timed out": 95
+    },
+    "fd_limit_failures": 0,
+    "connect_secs": 106.232,
+    "connects_per_sec": 940.305
+  },
+  "publish": {
+    "scheduled": 20,
+    "ok": 20,
+    "failed": 0,
+    "not_sent": 0,
+    "requested_rate": 1.0,
+    "achieved_rate": 1.0,
+    "rate_shortfall": false,
+    "phase_secs": 20.001,
+    "first_error": null
+  },
+  "deliveries": {
+    "expected": 1997800,
+    "received": 1997800,
+    "missing": 0,
+    "loss_percent": 0.0,
+    "malformed": 0,
+    "duplicates": 0,
+    "gaps": 0
+  },
+  "latency_ms": {
+    "min": 0.351,
+    "mean": 199.399,
+    "p50": 167.551,
+    "p90": 313.599,
+    "p99": 1062.911,
+    "p999": 1667.071,
+    "max": 1764.351
+  },
+  "throughput": {
+    "deliveries_per_sec": 99884.537,
+    "publish_phase_secs": 20.001
+  }
+}

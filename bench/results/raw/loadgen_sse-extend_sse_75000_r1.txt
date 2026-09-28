@@ -1,0 +1,49 @@
+parameters
+  url                               http://127.203.3.1:47302
+  topic                             loadgen
+  transport                         sse
+  connections                       75000
+  rate (msg/s)                      1
+  duration (s)                      20
+  payload (bytes)                   64
+  connect concurrency               128
+  drain timeout (s)                 10
+  spread loopback addresses         64
+  hold idle (s)                     10
+
+connections
+  requested                         75000
+  established                       74983
+  failed                            17
+  closed early                      0
+    connect error x17               Connection reset by peer (os error 104)
+  connect phase (s)                 30.696
+  connects per second               2443
+
+publish
+  scheduled                         20
+  ok                                20
+  failed                            0
+  not sent                          0
+  requested rate (msg/s)            1.0
+  achieved rate (msg/s)             1.0
+  publish phase (s)                 20.002
+
+deliveries
+  expected                          1499660
+  received                          1499660
+  missing                           0
+  loss (%)                          0.000
+  malformed                         0
+  duplicates                        0
+  gaps seen                         0
+  deliveries/s over publish phase   74977
+
+latency (ms)
+  min                               0.682
+  mean                              111.334
+  p50                               112.191
+  p90                               194.175
+  p99                               214.015
+  p99.9                             337.919
+  max                               382.207
