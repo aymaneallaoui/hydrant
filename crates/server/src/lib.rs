@@ -16,7 +16,7 @@ use tokio::{
 
 use crate::{config::Settings, routes::router, state::AppState};
 
-/// Binds like `TcpListener::bind` (`SO_REUSEADDR` on) but with an explicit listen backlog.
+/// Binds like `TcpListener::bind` (`SO_REUSEADDR` on, except on Windows) but with an explicit listen backlog.
 /// Must be called inside a tokio runtime.
 pub fn bind_listener(addr: SocketAddr, backlog: u32) -> io::Result<TcpListener> {
     let socket = if addr.is_ipv4() {
@@ -24,6 +24,7 @@ pub fn bind_listener(addr: SocketAddr, backlog: u32) -> io::Result<TcpListener> 
     } else {
         TcpSocket::new_v6()?
     };
+    #[cfg(not(windows))]
     socket.set_reuseaddr(true)?;
     socket.bind(addr)?;
     socket.listen(backlog)

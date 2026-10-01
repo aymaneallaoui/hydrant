@@ -3,7 +3,7 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::{IO_TIMEOUT, SseClient, TestServer, metric};
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use hydrant_server::config::Settings;
 use tokio_tungstenite::{
     connect_async,
@@ -52,6 +52,22 @@ async fn websocket_delivers_a_max_size_payload_byte_exact() {
 
     assert_eq!(server.publish("room", payload.as_bytes()).await.0, 202);
     assert_eq!(next_ws(&mut ws).await, Message::text(payload));
+
+    drop(ws);
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn websocket_accepts_a_max_size_frame_from_the_client_and_stays_healthy() {
+    let mut server = start().await;
+    let (mut ws, _) = connect_async(format!("ws://{}/topics/room/ws", server.addr))
+        .await
+        .expect("ws connect");
+    let frame = "x".repeat(Settings::default().max_message_bytes);
+
+    ws.send(Message::text(frame)).await.expect("send max frame");
+    assert_eq!(server.publish("room", b"after").await.0, 202);
+    assert_eq!(next_ws(&mut ws).await, Message::text("after"));
 
     drop(ws);
     server.stop().await;
