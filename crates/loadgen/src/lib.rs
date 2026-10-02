@@ -28,6 +28,7 @@ const PROGRESS_EVERY: Duration = Duration::from_secs(1);
 const TEARDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn run(args: Args) -> anyhow::Result<Report> {
+    args.validate_spread()?;
     payload::init_clock();
     let mut ctrl_c = pin!(tokio::signal::ctrl_c());
     let target = tokio::select! {
