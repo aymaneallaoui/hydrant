@@ -14,6 +14,7 @@ use crate::payload::MIN_PAYLOAD_BYTES;
 
 const MAX_TOPIC_LEN: usize = 128;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+const MAX_SPREAD_LOOPBACK: u32 = 65_536;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -105,6 +106,23 @@ impl Args {
 
     pub fn connections(&self) -> anyhow::Result<usize> {
         usize::try_from(self.connections).context("--connections is too large")
+    }
+
+    pub fn validate_spread(&self) -> anyhow::Result<()> {
+        if self.spread_loopback > MAX_SPREAD_LOOPBACK {
+            bail!(
+                "--spread-loopback {} exceeds the maximum of {MAX_SPREAD_LOOPBACK}",
+                self.spread_loopback
+            );
+        }
+        if u64::from(self.spread_loopback) > self.connections {
+            bail!(
+                "--spread-loopback {} exceeds --connections {}",
+                self.spread_loopback,
+                self.connections
+            );
+        }
+        Ok(())
     }
 
     pub fn connect_concurrency(&self) -> anyhow::Result<usize> {
@@ -363,6 +381,33 @@ mod tests {
             .expect("args");
         assert_eq!((args.spread_loopback, args.hold_idle), (64, 5));
         assert!(Args::try_parse_from(["loadgen", "--spread-loopback", "0"]).is_err());
+    }
+
+    #[test]
+    fn spread_is_capped_by_connections_and_an_absolute_maximum() {
+        let parse = |extra: &[&str]| {
+            let mut argv = vec!["loadgen"];
+            argv.extend_from_slice(extra);
+            Args::try_parse_from(argv).expect("args")
+        };
+        assert!(
+            parse(&["--connections", "64", "--spread-loopback", "64"])
+                .validate_spread()
+                .is_ok()
+        );
+        let err = parse(&["--connections", "10", "--spread-loopback", "64"])
+            .validate_spread()
+            .expect_err("more addresses than connections");
+        assert!(err.to_string().contains("exceeds --connections"), "{err}");
+        let err = parse(&[
+            "--connections",
+            "100000000",
+            "--spread-loopback",
+            "16000000",
+        ])
+        .validate_spread()
+        .expect_err("absurd spread");
+        assert!(err.to_string().contains("maximum"), "{err}");
     }
 
     fn closed_port_addr() -> SocketAddr {
