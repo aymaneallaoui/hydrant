@@ -9,6 +9,7 @@ teardown. See bench/README.md.
 
 import argparse
 import csv
+import ctypes
 import http.client
 import json
 import math
@@ -40,6 +41,8 @@ HOLD_IDLE_SECS = 10
 IDLE_SETTLE_SECS = 3.0
 MEM_FLOOR_KB = int(1.5 * 1024 * 1024)
 PORT_BASE = 47300
+PR_SET_PDEATHSIG = 1
+LIBC = ctypes.CDLL(None) if sys.platform.startswith("linux") else None
 
 SAMPLE_FIELDS = [
     "server_rss_kb", "server_rss_anon_kb", "server_rss_file_kb", "server_hwm_kb",
@@ -56,7 +59,7 @@ RUN_FIELDS = [
     "publish_not_sent", "expected", "received", "missing", "loss_percent",
     "lat_min_ms", "lat_mean_ms", "lat_p50_ms", "lat_p90_ms", "lat_p99_ms",
     "lat_p999_ms", "lat_max_ms", "deliveries_per_sec", "listen_overflows_delta", "listen_drops_delta", "reqq_full_cookies_delta",
-    "abort_on_data_delta", "syn_retrans_delta", "flags",
+    "abort_on_data_delta", "syn_retrans_delta", "tw_overflow_delta", "flags",
 ]
 DERIVED_FIELDS = [
     "server_rss_per_conn_bytes", "server_anon_per_conn_bytes",
@@ -141,14 +144,41 @@ def sockstat_tcp():
     return {}
 
 
-def scrape_metrics(port, timeout=5):
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
-        conn.request("GET", "/metrics")
-        body = conn.getresponse().read().decode()
-        conn.close()
-    except (OSError, http.client.HTTPException):
-        return None, {}
+def die_with_parent():
+    if LIBC is not None:
+        LIBC.prctl(PR_SET_PDEATHSIG, signal.SIGKILL)
+
+
+class MetricsScraper:
+    """Scrapes /metrics over one kept-alive connection so a stalled listener does not blank samples."""
+
+    def __init__(self, port, timeout=5):
+        self.port = port
+        self.timeout = timeout
+        self.conn = None
+
+    def close(self):
+        if self.conn is not None:
+            self.conn.close()
+            self.conn = None
+
+    def scrape(self):
+        body = None
+        for _ in range(2):
+            try:
+                if self.conn is None:
+                    self.conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=self.timeout)
+                self.conn.request("GET", "/metrics")
+                body = self.conn.getresponse().read().decode()
+                break
+            except (OSError, http.client.HTTPException):
+                self.close()
+        if body is None:
+            return None, {}
+        return body, parse_metrics(body)
+
+
+def parse_metrics(body):
     values = {}
     for line in body.splitlines():
         if line.startswith("#") or not line.strip():
@@ -158,7 +188,7 @@ def scrape_metrics(port, timeout=5):
             values[name] = float(value)
         except ValueError:
             pass
-    return body, values
+    return values
 
 
 NETSTAT_KEYS = {
@@ -167,6 +197,7 @@ NETSTAT_KEYS = {
     "TCPReqQFullDoCookies": "reqq_full_cookies_delta",
     "TCPAbortOnData": "abort_on_data_delta",
     "TCPSynRetrans": "syn_retrans_delta",
+    "TCPTimeWaitOverflow": "tw_overflow_delta",
 }
 
 
@@ -188,7 +219,7 @@ def port_is_free(port):
             return False
 
 
-def sample(server_pid, loadgen_pid, port):
+def sample(server_pid, loadgen_pid, scraper):
     row = {}
     st = proc_status(server_pid)
     row["server_rss_kb"] = kb(st, "VmRSS")
@@ -218,7 +249,7 @@ def sample(server_pid, loadgen_pid, port):
     row["mem_available_kb"] = info.get("MemAvailable")
     row["slab_kb"] = info.get("Slab")
     row["sunreclaim_kb"] = info.get("SUnreclaim")
-    _, metrics = scrape_metrics(port)
+    _, metrics = scraper.scrape()
     row["gauge_ws"] = metrics.get('hydrant_connections{transport="ws"}')
     row["gauge_sse"] = metrics.get('hydrant_connections{transport="sse"}')
     if row["gauge_ws"] is not None:
@@ -247,6 +278,8 @@ class Run:
         self.ts_rows = []
         self.min_available_kb = None
         self.lock = threading.Lock()
+        self.scraper = MetricsScraper(self.port)
+        self.sampler_scraper = MetricsScraper(self.port)
         self.points = {}
         self.netstat_before = netstat_counters()
         self.stderr_lines = []
@@ -266,8 +299,7 @@ class Run:
                 except subprocess.TimeoutExpired:
                     pass
 
-    def sampler(self):
-        tick = 0
+    def watchdog(self):
         while not self.stop_sampler.is_set():
             avail = mem_available_kb()
             if self.min_available_kb is None or avail < self.min_available_kb:
@@ -279,15 +311,18 @@ class Run:
                 )
                 self.kill_all()
                 return
-            if tick % 2 == 0 and self.server is not None and self.server.poll() is None:
+            self.stop_sampler.wait(0.25)
+
+    def sampler(self):
+        while not self.stop_sampler.is_set():
+            if self.server is not None and self.server.poll() is None:
                 lg = self.loadgen.pid if self.loadgen and self.loadgen.poll() is None else None
-                row = sample(self.server.pid, lg, self.port)
+                row = sample(self.server.pid, lg, self.sampler_scraper)
                 row["t_s"] = self.now()
                 row["phase"] = self.phase
                 with self.lock:
                     self.ts_rows.append(row)
-            tick += 1
-            self.stop_sampler.wait(0.25)
+            self.stop_sampler.wait(0.5)
 
     def read_stderr(self):
         for raw in self.loadgen.stderr:
@@ -314,7 +349,7 @@ class Run:
         deadline = time.monotonic() + timeout
         value = None
         while time.monotonic() < deadline and not self.abort_reason:
-            _, metrics = scrape_metrics(self.port)
+            _, metrics = self.scraper.scrape()
             value = sum(v for k, v in metrics.items() if k.startswith("hydrant_connections{"))
             if value == target:
                 return True, value
@@ -324,7 +359,7 @@ class Run:
     def point(self, phase):
         self.phase = phase
         lg = self.loadgen.pid if self.loadgen and self.loadgen.poll() is None else None
-        row = sample(self.server.pid, lg, self.port)
+        row = sample(self.server.pid, lg, self.scraper)
         row["phase"] = phase
         row["t_s"] = self.now()
         self.points[phase] = row
@@ -341,14 +376,18 @@ class Run:
         result = {"status": "ok", "flags": []}
         server_log = open(raw / f"server_{self.tag}.log", "wb")
         self.server = subprocess.Popen(
-            [str(SERVER_BIN)], env=env, stdout=server_log, stderr=server_log
+            [str(SERVER_BIN)], env=env, stdout=server_log, stderr=server_log,
+            preexec_fn=die_with_parent,
         )
+        threading.Thread(target=self.watchdog, daemon=True).start()
         threading.Thread(target=self.sampler, daemon=True).start()
         try:
             self.wait_healthy()
             time.sleep(1.0)
             self.point("baseline")
             report_path = raw / f"loadgen_{self.tag}.json"
+            report_path.unlink(missing_ok=True)
+            (raw / f"metrics_{self.tag}.txt").unlink(missing_ok=True)
             cmd = [
                 str(LOADGEN_BIN), "--url", f"http://{self.base_ip}:{self.port}",
                 "--transport", self.transport, "--connections", str(self.n),
@@ -361,7 +400,8 @@ class Run:
             self.phase = "connecting"
             out_file = open(raw / f"loadgen_{self.tag}.txt", "wb")
             self.loadgen = subprocess.Popen(
-                cmd, stdout=out_file, stderr=subprocess.PIPE, env=os.environ.copy()
+                cmd, stdout=out_file, stderr=subprocess.PIPE, env=os.environ.copy(),
+                preexec_fn=die_with_parent,
             )
             threading.Thread(target=self.read_stderr, daemon=True).start()
             time.sleep(1.0)
@@ -385,7 +425,7 @@ class Run:
             self.phase = "publishing"
             time.sleep(args.duration / 2)
             self.point("load")
-            self.last_metrics_body, _ = scrape_metrics(self.port)
+            self.last_metrics_body, _ = self.scraper.scrape()
 
             if not self.wait_marker("disconnecting", args.duration + 60):
                 result["status"] = self.abort_reason and "aborted_memory" or "no_disconnect_marker"
@@ -430,6 +470,8 @@ class Run:
     def cleanup(self):
         self.stop_sampler.set()
         self.kill_all()
+        self.scraper.close()
+        self.sampler_scraper.close()
 
 
 def pct(a, b):
@@ -514,31 +556,81 @@ def write_csv(path, columns, rows):
             writer.writerow({k: ("" if row.get(k) is None else row.get(k)) for k in columns})
 
 
+def repo_relative(path):
+    path = Path(path).resolve()
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return path.name
+
+
+def read_environment(path):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def write_environment(args, addr_block):
     path = args.out / "environment.json"
-    env = environment(args, addr_block)
-    previous = []
-    if path.exists():
-        try:
-            previous = json.loads(path.read_text()).get("invocations", [])
-        except ValueError:
-            previous = []
+    env = environment()
+    previous = read_environment(path).get("invocations", [])
     digest = subprocess.run(
         ["sha256sum", str(SERVER_BIN)], capture_output=True, text=True
     ).stdout.split()[:1]
+    git = git_state()
     env["invocations"] = [i for i in previous if i.get("variant") != args.variant] + [
         {
             "variant": args.variant,
-            "date_utc": env["date_utc"],
-            "server_binary": str(SERVER_BIN),
+            "date_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "mem_available_kb_at_start": mem_available_kb(),
+            "server_binary": repo_relative(SERVER_BIN),
             "server_binary_sha256": digest[0] if digest else None,
-            "git_commit": env["git_commit"],
-            "git_dirty": env["git_dirty"],
+            **git,
             "ladder": args.ladder,
             "transports": args.transports,
+            "sweep": {
+                "repeats": args.repeats,
+                "no_repeat": args.no_repeat,
+                "repeat_points": f"N={HEADLINE_REPEAT_AT} and the maximum N reached",
+                "memory_floor_kib": MEM_FLOOR_KB,
+            },
+            "server": {
+                "profile": "release",
+                "env": {
+                    "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+                    "HYDRANT_LOG_LEVEL": "warn",
+                    "HYDRANT_LISTEN_BACKLOG": args.listen_backlog if args.listen_backlog is not None else "unset (server default)",
+                    "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, "
+                    "max message 65536 bytes, policy disconnect, send timeout 10 s, "
+                    "max connections unlimited)",
+                },
+            },
+            "loadgen": {
+                "binary": repo_relative(LOADGEN_BIN),
+                "single_topic": "loadgen",
+                "spread_loopback_addresses": SPREAD,
+                "address_block": f"127.{addr_block}.<run>.1 .. +{SPREAD - 1}, one /24 per run",
+                "payload_bytes": PAYLOAD_BYTES,
+                "connect_concurrency": CONNECT_CONCURRENCY,
+                "rate_msgs_per_sec": args.rate,
+                "publish_duration_secs": args.duration,
+                "hold_idle_secs": HOLD_IDLE_SECS,
+                "drain_timeout_secs": 10,
+            },
         }
     ]
     path.write_text(json.dumps(env, indent=2) + "\n")
+
+
+def variant_exists(args):
+    for name in ("runs.csv", "sweep.csv"):
+        path = args.out / name
+        if path.exists():
+            with open(path, newline="") as handle:
+                if any(r.get("variant") == args.variant for r in csv.DictReader(handle)):
+                    return True
+    return False
 
 
 def merge_rows(path, columns, variant, rows):
@@ -549,7 +641,21 @@ def merge_rows(path, columns, variant, rows):
     write_csv(path, columns, kept + rows)
 
 
-def environment(args, addr_block):
+def git_state():
+    def sh(cmd):
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT, timeout=30).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    return {
+        "git_commit": sh(["git", "rev-parse", "HEAD"]),
+        "git_branch": sh(["git", "rev-parse", "--abbrev-ref", "HEAD"]),
+        "git_dirty": bool(sh(["git", "status", "--porcelain"])),
+    }
+
+
+def environment():
     def sh(cmd):
         try:
             return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT, timeout=30).stdout.strip()
@@ -563,59 +669,23 @@ def environment(args, addr_block):
         name: read_text(f"/proc/sys/{name.replace('.', '/')}").strip()
         for name in (
             "net.ipv4.ip_local_port_range", "net.core.somaxconn", "net.ipv4.tcp_tw_reuse",
-            "net.ipv4.tcp_max_tw_buckets", "net.ipv4.tcp_max_syn_backlog", "fs.file-max",
-            "net.ipv4.tcp_mem", "net.ipv4.tcp_rmem", "net.ipv4.tcp_wmem",
+            "net.ipv4.tcp_max_tw_buckets", "net.ipv4.tcp_max_orphans", "net.ipv4.tcp_max_syn_backlog",
+            "fs.file-max", "net.ipv4.tcp_mem", "net.ipv4.tcp_rmem", "net.ipv4.tcp_wmem",
         )
     }
     import resource
     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     return {
-        "date_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "cpu_model": cpu,
         "logical_cores": os.cpu_count(),
         "mem_total_kb": mem.get("MemTotal"),
-        "mem_available_kb_at_start": mem.get("MemAvailable"),
         "swap_total_kb": mem.get("SwapTotal"),
         "kernel": platform.release(),
         "wsl2": "microsoft" in platform.release().lower(),
         "rustc": sh(["rustc", "--version"]),
-        "git_commit": sh(["git", "rev-parse", "HEAD"]),
-        "git_branch": sh(["git", "rev-parse", "--abbrev-ref", "HEAD"]),
-        "git_dirty": bool(sh(["git", "status", "--porcelain"])),
         "nofile_limit": {"soft": soft, "hard": hard},
         "sysctl": sysctl,
         "page_size_kb": PAGE_KB,
-        "server": {
-            "binary": str(SERVER_BIN),
-            "profile": "release",
-            "env": {
-                "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
-                "HYDRANT_LOG_LEVEL": "warn",
-                "HYDRANT_LISTEN_BACKLOG": args.listen_backlog if args.listen_backlog is not None else "unset (server default)",
-                "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, "
-                "max message 65536 bytes, policy disconnect, send timeout 10 s, "
-                "max connections unlimited)",
-            },
-        },
-        "loadgen": {
-            "binary": str(LOADGEN_BIN.relative_to(ROOT)),
-            "single_topic": "loadgen",
-            "spread_loopback_addresses": SPREAD,
-            "address_block": f"127.{addr_block}.<run>.1 .. +{SPREAD - 1}, one /24 per run",
-            "payload_bytes": PAYLOAD_BYTES,
-            "connect_concurrency": CONNECT_CONCURRENCY,
-            "rate_msgs_per_sec": args.rate,
-            "publish_duration_secs": args.duration,
-            "hold_idle_secs": HOLD_IDLE_SECS,
-            "drain_timeout_secs": 10,
-        },
-        "sweep": {
-            "ladder": args.ladder,
-            "transports": args.transports,
-            "repeats": args.repeats,
-            "repeat_points": f"N={HEADLINE_REPEAT_AT} and the maximum N reached",
-            "memory_floor_kib": MEM_FLOOR_KB,
-        },
         "notes": [
             "Server and load generator run on the same machine and compete for CPU, "
             "so latency figures are a lower bound on quality, not a server-only measurement.",
@@ -625,6 +695,8 @@ def environment(args, addr_block):
             "carry background noise (see mem_available_kb).",
             "Connections use a single topic, so one broadcast ring is shared by all subscribers.",
             "WSL2 kernel; loopback traffic never touches a NIC.",
+            "Machine facts are read at each invocation and the latest reading is kept; "
+            "settings that belong to one invocation live in its entry under invocations.",
         ],
     }
 
@@ -657,7 +729,10 @@ def main():
     parser.add_argument("--repeats", type=int, default=3, help="total runs at the repeat points")
     parser.add_argument("--rate", type=int, default=1)
     parser.add_argument("--duration", type=int, default=20)
-    parser.add_argument("--out", type=Path, default=ROOT / "bench" / "results")
+    parser.add_argument("--out", "--results-dir", dest="out", type=Path, default=ROOT / "bench" / "results",
+                        help="directory for results (default: bench/results)")
+    parser.add_argument("--replace-variant", action="store_true",
+                        help="overwrite the rows of a variant label that already exists in the results")
     parser.add_argument("--variant", default="current", help="label for the server build under test")
     parser.add_argument("--server-bin", type=Path, default=SERVER_BIN)
     parser.add_argument("--listen-backlog", type=int, default=None, help="set HYDRANT_LISTEN_BACKLOG for the server (default: server default)")
@@ -674,6 +749,11 @@ def main():
             sys.exit(f"missing {binary}; run `cargo build --workspace --release --locked`")
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "raw").mkdir(exist_ok=True)
+    if variant_exists(args) and not args.replace_variant:
+        sys.exit(
+            f"variant {args.variant!r} already has rows in {args.out}; pick a new --variant label "
+            "or pass --replace-variant to overwrite its rows"
+        )
 
     addr_block = random.randrange(20, 230)
     write_environment(args, addr_block)
@@ -704,6 +784,7 @@ def main():
             run_rows.append({"variant": args.variant, "run_id": run_id, "transport": transport, "n": n, "rep": rep,
                              "status": "skipped_memory_prediction",
                              "flags": f"predicted_kib={predicted};available_kib={avail}"})
+            merge_rows(args.out / "runs.csv", RUNS_COLUMNS, args.variant, run_rows)
             return None
         run = Run(args, run_id, transport, n, rep, addr_block)
         current["run"] = run

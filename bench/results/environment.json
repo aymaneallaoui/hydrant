@@ -1,16 +1,11 @@
 {
-  "date_utc": "2026-10-05T19:33:27+00:00",
   "cpu_model": "13th Gen Intel(R) Core(TM) i9-13980HX",
   "logical_cores": 32,
   "mem_total_kb": 16217816,
-  "mem_available_kb_at_start": 5168736,
   "swap_total_kb": 4194304,
   "kernel": "6.18.33.1-microsoft-standard-WSL2",
   "wsl2": true,
   "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
-  "git_commit": "4c9191ae905430266f63efcee65c591bc3f0e95f",
-  "git_branch": "bench/100k",
-  "git_dirty": true,
   "nofile_limit": {
     "soft": 1048576,
     "hard": 1048576
@@ -27,51 +22,19 @@
     "net.ipv4.tcp_wmem": "4096\t16384\t4194304"
   },
   "page_size_kb": 4,
-  "server": {
-    "binary": "/home/aymane/floodgate/target/release/hydrant-server",
-    "profile": "release",
-    "env": {
-      "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
-      "HYDRANT_LOG_LEVEL": "warn",
-      "HYDRANT_LISTEN_BACKLOG": 4096,
-      "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
-    }
-  },
-  "loadgen": {
-    "binary": "target/release/hydrant-loadgen",
-    "single_topic": "loadgen",
-    "spread_loopback_addresses": 64,
-    "address_block": "127.68.<run>.1 .. +63, one /24 per run",
-    "payload_bytes": 64,
-    "connect_concurrency": 128,
-    "rate_msgs_per_sec": 1,
-    "publish_duration_secs": 20,
-    "hold_idle_secs": 10,
-    "drain_timeout_secs": 10
-  },
-  "sweep": {
-    "ladder": [
-      100000
-    ],
-    "transports": [
-      "ws"
-    ],
-    "repeats": 3,
-    "repeat_points": "N=10000 and the maximum N reached",
-    "memory_floor_kib": 1572864
-  },
   "notes": [
     "Server and load generator run on the same machine and compete for CPU, so latency figures are a lower bound on quality, not a server-only measurement.",
     "Server RSS excludes kernel socket buffers; tcp_mem_* and system_used_* columns cover the kernel side (both ends of every loopback connection).",
     "The machine was in interactive use during the run, so memory deltas carry background noise (see mem_available_kb).",
     "Connections use a single topic, so one broadcast ring is shared by all subscribers.",
-    "WSL2 kernel; loopback traffic never touches a NIC."
+    "WSL2 kernel; loopback traffic never touches a NIC.",
+    "Machine facts are read at each invocation and the latest reading is kept; settings that belong to one invocation live in its entry under invocations."
   ],
   "invocations": [
     {
       "variant": "unpatched",
       "date_utc": "2026-10-05T18:38:47+00:00",
-      "server_binary": "/tmp/claude-1000/-home-aymane-floodgate/ccab8d29-d867-4dbf-b380-d561367629f2/scratchpad/hydrant-server-unpatched",
+      "server_binary": "hydrant-server-unpatched",
       "server_binary_sha256": "2cbe76a65610fcb89848b800143c38d1fbc7c929c38ced19bfadd14f15913eec",
       "git_commit": "4c9191ae905430266f63efcee65c591bc3f0e95f",
       "git_dirty": true,
@@ -87,12 +50,36 @@
       "transports": [
         "ws",
         "sse"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "not recorded",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.28.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "current",
       "date_utc": "2026-10-05T18:48:47+00:00",
-      "server_binary": "/home/aymane/floodgate/target/release/hydrant-server",
+      "server_binary": "target/release/hydrant-server",
       "server_binary_sha256": "f6581b5dbaee81962cf2ec01c75c84831b5356df545e1ff84246e08980c10951",
       "git_commit": "4c9191ae905430266f63efcee65c591bc3f0e95f",
       "git_dirty": true,
@@ -108,12 +95,36 @@
       "transports": [
         "ws",
         "sse"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "not recorded",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.224.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "diag-netstat",
       "date_utc": "2026-10-05T19:07:00+00:00",
-      "server_binary": "/home/aymane/floodgate/target/release/hydrant-server",
+      "server_binary": "target/release/hydrant-server",
       "server_binary_sha256": "f6581b5dbaee81962cf2ec01c75c84831b5356df545e1ff84246e08980c10951",
       "git_commit": "4c9191ae905430266f63efcee65c591bc3f0e95f",
       "git_dirty": true,
@@ -122,12 +133,36 @@
       ],
       "transports": [
         "ws"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "not recorded",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "not recorded (aborted before the loadgen report was written)",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "backlog1024",
       "date_utc": "2026-10-05T19:16:02+00:00",
-      "server_binary": "/home/aymane/floodgate/target/release/hydrant-server",
+      "server_binary": "target/release/hydrant-server",
       "server_binary_sha256": "4ae88160c0d5bafc52166faf91077679c34f88714c7c177e2f0a37965c578be8",
       "git_commit": "4c9191ae905430266f63efcee65c591bc3f0e95f",
       "git_dirty": true,
@@ -136,12 +171,36 @@
       ],
       "transports": [
         "ws"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": 1024,
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.187.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "backlog4096",
       "date_utc": "2026-10-05T19:16:51+00:00",
-      "server_binary": "/home/aymane/floodgate/target/release/hydrant-server",
+      "server_binary": "target/release/hydrant-server",
       "server_binary_sha256": "4ae88160c0d5bafc52166faf91077679c34f88714c7c177e2f0a37965c578be8",
       "git_commit": "4c9191ae905430266f63efcee65c591bc3f0e95f",
       "git_dirty": true,
@@ -150,12 +209,36 @@
       ],
       "transports": [
         "ws"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": 4096,
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.77.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "tokio-default-bind",
       "date_utc": "2026-10-05T19:25:26+00:00",
-      "server_binary": "/tmp/claude-1000/hydrant-server-tokiobind",
+      "server_binary": "hydrant-server-tokiobind",
       "server_binary_sha256": "3f4af462e057cbb738d084954c47c3e8651d8850ba4f8bd7e67ccb98990cf8f5",
       "git_commit": "4c9191ae905430266f63efcee65c591bc3f0e95f",
       "git_dirty": true,
@@ -164,12 +247,36 @@
       ],
       "transports": [
         "ws"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "not recorded",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.150.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "sse-extend",
       "date_utc": "2026-10-05T19:27:28+00:00",
-      "server_binary": "/home/aymane/floodgate/target/release/hydrant-server",
+      "server_binary": "target/release/hydrant-server",
       "server_binary_sha256": "31de8383034f04518779ac2effe0ae58474a7372774e68ff73bf67ad5a763406",
       "git_commit": "4c9191ae905430266f63efcee65c591bc3f0e95f",
       "git_dirty": true,
@@ -179,12 +286,36 @@
       ],
       "transports": [
         "sse"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "not recorded",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.203.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "backlog1024-b",
       "date_utc": "2026-10-05T19:31:43+00:00",
-      "server_binary": "/home/aymane/floodgate/target/release/hydrant-server",
+      "server_binary": "target/release/hydrant-server",
       "server_binary_sha256": "31de8383034f04518779ac2effe0ae58474a7372774e68ff73bf67ad5a763406",
       "git_commit": "4c9191ae905430266f63efcee65c591bc3f0e95f",
       "git_dirty": true,
@@ -193,21 +324,71 @@
       ],
       "transports": [
         "ws"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": 1024,
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.221.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "backlog4096-b",
       "date_utc": "2026-10-05T19:33:27+00:00",
-      "server_binary": "/home/aymane/floodgate/target/release/hydrant-server",
+      "mem_available_kb_at_start": 5168736,
+      "server_binary": "target/release/hydrant-server",
       "server_binary_sha256": "31de8383034f04518779ac2effe0ae58474a7372774e68ff73bf67ad5a763406",
       "git_commit": "4c9191ae905430266f63efcee65c591bc3f0e95f",
       "git_dirty": true,
+      "git_branch": "bench/100k",
       "ladder": [
         100000
       ],
       "transports": [
         "ws"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": 4096,
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.68.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     }
   ]
 }
