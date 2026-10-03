@@ -164,7 +164,7 @@ def chart_per_conn(theme):
     height, gap = 0.24, 0.27
     yticks, ylabels, server_vals = [], [], {}
     for gi, (key, label, color, pred) in enumerate(SERIES):
-        rows = series_rows(IDLE, pred)
+        rows = [r for r in series_rows(IDLE, pred) if r["status"] == "ok"]
         yc = gi * 1.15
         top_n = max(int(r["n"]) for r in rows)
         for pi, (col, plabel, hatch) in enumerate(parts):
@@ -197,7 +197,7 @@ def chart_per_conn(theme):
         fig,
         f"Per connection: {server_vals['ws_before']:.0f} KiB for WebSocket before the fix, "
         f"{server_vals['ws_after']:.0f} after, {server_vals['sse']:.0f} for SSE",
-        "Source: bench/results/sweep.csv, phase idle, median over the runs at the largest N of each series. KiB = 1024 bytes.\n"
+        "Source: bench/results/sweep.csv, phase idle, status ok runs only, median over the runs at the largest such N of each series. KiB = 1024 bytes.\n"
         "Load generator figure is its whole RSS divided by N, so it includes fixed overhead. Slab is the SUnreclaim delta; it needs the newer sweep columns.",
         c,
         "Server, client and kernel memory shown separately",
@@ -226,13 +226,14 @@ def chart_latency(theme):
     p99_ws = []
     for ax, transport, title in ((axes[0], "ws", "WebSocket"), (axes[1], "sse", "SSE")):
         rows = runs_ok(lambda r: r["transport"] == transport)
+        line_variants = ("current",) if transport == "ws" else ("current", "sse-extend")
         for col, label, color in pcts:
             groups = {}
             for r in rows:
                 groups.setdefault(int(r["n"]), []).append(r)
             xs, meds = [], []
             for n in sorted(groups):
-                cur = [num(r[col]) for r in groups[n] if r["variant"] == "current"]
+                cur = [num(r[col]) for r in groups[n] if r["variant"] in line_variants]
                 if cur:
                     xs.append(n)
                     meds.append(statistics.median(cur))
@@ -244,7 +245,7 @@ def chart_latency(theme):
                     ax.scatter(n * jitter, num(r[col]), s=30, marker=pct_marker[col], zorder=3, linewidths=1.3,
                                facecolors=c[color] if filled else c["surface"], edgecolors=c[color])
             if xs:
-                ax.annotate(label, xy=(max(int(r['n']) for r in rows) * 1.06, meds[-1]), xytext=(12, 0), textcoords="offset points",
+                ax.annotate(label, xy=(xs[-1], meds[-1]), xytext=(14, 0), textcoords="offset points",
                             color=c["ink"], fontsize=9.5, va="center", ha="left")
         ax.set_xscale("log")
         ax.set_yscale("log")
@@ -270,7 +271,7 @@ def chart_latency(theme):
         fig,
         f"At 100,000 WebSockets: p50 about {statistics.median(p50_ws):.0f} ms, "
         f"p99 {fmt_int(min(p99_ws))} to {fmt_int(max(p99_ws))} ms over {n_ws} runs",
-        "Source: bench/results/runs.csv, status ok runs, one point per run; lines join the per-N median of the current build. 1 msg/s, 64-byte payload, one topic.\n"
+        "Source: bench/results/runs.csv, status ok runs, one point per run; lines join the per-N median of the current build (SSE: current and sse-extend, same code). 1 msg/s, 64-byte payload, one topic.\n"
         "Client and server share this machine's cores; latency uses intended send time. Backlog experiment runs are included at 100,000 (same server code).",
         c,
         "Time from intended publish to receipt, per delivery, for every run",
@@ -279,11 +280,9 @@ def chart_latency(theme):
 
 
 def ramp(name):
-    out = []
-    for r in read(name):
-        if r["gauge_connections"] != "" and r["phase"].startswith("connecting"):
-            out.append((float(r["t_s"]), float(r["gauge_connections"])))
-    return out
+    rows = [r for r in read(name) if r["phase"].startswith("connecting")]
+    start = float(rows[0]["t_s"])
+    return [(float(r["t_s"]) - start, float(r["gauge_connections"])) for r in rows if r["gauge_connections"] != ""]
 
 
 def chart_connect(theme):
@@ -336,19 +335,23 @@ def chart_connect(theme):
     ax.set_title("Time to establish all connections", loc="left", fontsize=10.5, color=c["ink"], pad=6)
     ax.legend(loc="upper left", fontsize=7, labelcolor=c["ink"], handlelength=1.2, borderaxespad=0.2)
 
+    def table_secs(variant, run_id):
+        row = next(r for r in RUNS if r["variant"] == variant and r["run_id"] == str(run_id) and r["transport"] == "ws")
+        return num(row["connect_secs"])
+
     traces = [
-        ("ramp_ws.csv", "-", "default bind (backlog 128), run 9"),
-        ("ramp_ws_backlog4096.csv", "--", "backlog 4096, repeat 1"),
-        ("ramp_ws_backlog1024.csv", ":", "backlog 1024"),
+        ("ramp_ws.csv", "-", "backlog 128, run 9", table_secs("current", 9)),
+        ("ramp_ws_backlog4096.csv", "--", "backlog 4096, rep 1", table_secs("backlog4096", 1)),
+        ("ramp_ws_backlog1024.csv", ":", "backlog 1024", table_secs("backlog1024", 2)),
     ]
-    for name, dash, label in traces:
+    for name, dash, label, table in traces:
         pts = ramp(name)
         xs = [p[0] for p in pts]
         ys = [p[1] for p in pts]
         done = next((x for x, y in pts if y >= max(ys) - 1), xs[-1])
-        bx.plot(xs, ys, color=c["blue"], lw=2.2, ls=dash, zorder=3, label=f"{label}: all up after {done:.0f} s")
-    bx.legend(loc="lower right", fontsize=8, labelcolor=c["ink"], handlelength=2.6)
-    bx.set_xlabel("Seconds since the loadgen started connecting")
+        bx.plot(xs, ys, color=c["blue"], lw=2.2, ls=dash, zorder=3, label=f"{label}: gauge full {done:.1f} s, table {table:.1f} s")
+    bx.legend(loc="lower right", fontsize=7.5, labelcolor=c["ink"], handlelength=2.2, borderaxespad=0.2)
+    bx.set_xlabel("Seconds since loadgen launch (about)")
     bx.set_ylabel("Established connections")
     bx.yaxis.set_major_formatter(FuncFormatter(lambda v, _: fmt_int(v)))
     bx.set_ylim(0, 105_000)
@@ -359,7 +362,7 @@ def chart_connect(theme):
         "Source: bench/results/runs.csv (left), bench/results/ramp_ws.csv, ramp_ws_backlog4096.csv, ramp_ws_backlog1024.csv (right).\n"
         "Backlog 1024 runs (s): " + ", ".join(f"{t:.1f}" for t in by_backlog["backlog1024"])
         + ". Backlog 4096 runs (s): " + ", ".join(f"{t:.1f}" for t in by_backlog["backlog4096"])
-        + ". A larger backlog does not explain the slow runs.",
+        + ". Right panel: time zero is the first connecting-phase sample, within 0.5 s of launch; gauge samples only (blank scrapes dropped); \"table\" is connect_secs, which runs until every attempt connected or failed.",
         c,
         "In the slow ramps, progress falls from over 10,000 connections per second to a few hundred or fewer near 65,000",
     )
