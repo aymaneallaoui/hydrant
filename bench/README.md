@@ -19,9 +19,9 @@ Results go to `bench/results/`:
 | `ramp_<transport>.csv` | time series (2 samples per second) of server RSS, connection gauge, loadgen RSS, kernel TCP memory and `MemAvailable` across the largest ramp-up; `ramp_<transport>_<variant>.csv` for other variants |
 | `raw/` | per run: loadgen `--json` report and text report, server log, final `/metrics` scrape, full time series |
 | `../../docs/img/` | charts rendered by `bench/plot.py` from the CSVs above (`make bench-plot`) |
-| `environment.json` | CPU, cores, RAM, kernel, rustc, git commit, limits, sysctls, server and loadgen settings, notes, one entry per invocation |
+| `environment.json` | machine facts at the top level (CPU, cores, RAM, kernel, rustc, limits, sysctls including `tcp_max_tw_buckets` and `tcp_max_orphans`, notes); one entry per invocation under `invocations` with its variant, date, git state, binary (repo-relative path or file name, SHA-256), ladder, transports and server, loadgen and sweep settings. Paths are never absolute |
 
-Each step starts a fresh server process, so allocator retention from earlier steps never pollutes a number. Sampling points: `baseline` (server up, no connections), `idle` (all connections established, nothing published, 3 s after the server's connection gauge equals the loadgen's established count), `load` (middle of the publish phase), `after` (3 s after the server's gauge returned to zero). Publishing is open-loop at `--rate` messages per second (default 1) for `--duration` seconds (default 20) with 64-byte payloads on one topic, so N connections receive N deliveries per second. Repeats (default 3 runs) are made at N = 10000 and at the largest N that completed. Every run is kept; runs with loss, publish failures, early closes, failed connects or an achieved rate under 95% of requested are flagged in `runs.csv`, never rerun to look better.
+Each step starts a fresh server process, so allocator retention from earlier steps never pollutes a number. Sampling points: `baseline` (server up, no connections), `idle` (all connections established, nothing published, 3 s after the server's connection gauge equals the loadgen's established count), `load` (middle of the publish phase), `after` (3 s after the server's gauge returned to zero). Publishing is open-loop at `--rate` messages per second (default 1) for `--duration` seconds (default 20) with 64-byte payloads on one topic, so N connections receive N deliveries per second. Repeats (default 3 runs) are made at N = 10000 and at the largest N that completed. Pass `--results-dir DIR` (alias of `--out`) to write somewhere else, for example for a smoke test. Every run is kept; runs with loss, publish failures, early closes, failed connects or an achieved rate under 95% of requested are flagged in `runs.csv`, never rerun to look better.
 
 Memory columns: `VmRSS`, `RssAnon`, `RssFile`, `VmHWM` from `/proc/<pid>/status`; `Pss` and `Pss_Anon` from `smaps_rollup`; thread and file-descriptor counts; CPU seconds; the same for the loadgen; `tcp_*` from `/proc/net/sockstat` (`tcp_mem_pages` is the kernel's `mem` field in pages, `tcp_mem_kb` the same in KiB). RSS does not include kernel socket buffers, so the kernel cost is only visible in `tcp_mem_*` and in `system_used_per_conn_bytes` (drop in `MemAvailable`, which also covers both loopback ends, the loadgen and any other activity on the machine). `*_per_conn_bytes` are `(value - baseline) / N` in bytes.
 
@@ -31,9 +31,15 @@ Memory columns: `VmRSS`, `RssAnon`, `RssFile`, `VmHWM` from `/proc/<pid>/status`
 
 ## Variants
 
-`--variant` labels the server build under test (column `variant`); rows of other variants already in the CSVs are kept. The committed results contain `unpatched` (the server before the WebSocket buffer change, built from the parent commit and passed with `--server-bin`), `current` (this tree) and `diag-netstat` (a single 100,000-connection WebSocket attempt kept only for its kernel TCP counter deltas; it was aborted by the memory floor). The SSE server code is identical in `unpatched` and `current`, so both SSE sweeps are independent repetitions of the same code.
+`--variant` labels the server build under test (column `variant`); rows of other variants already in the CSVs are kept. The committed results contain `unpatched` (the server before the WebSocket buffer change, built from the parent commit and passed with `--server-bin`), `current` (the buffer fix, bound with `TcpListener::bind`, backlog 128; see Build identity below) and `diag-netstat` (a single 100,000-connection WebSocket attempt kept only for its kernel TCP counter deltas; it was aborted by the memory floor). The SSE server code is identical in `unpatched` and `current`, so both SSE sweeps are independent repetitions of the same code.
 
 Follow-up variants, each one 100,000-connection WebSocket connect phase unless noted: `backlog1024` and `backlog1024-b` (`--listen-backlog 1024`), `backlog4096` (three repeats) and `backlog4096-b` (`--listen-backlog 4096`), `tokio-default-bind` (a build that uses `TcpListener::bind`, listen backlog 128, passed with `--server-bin`), and `sse-extend` (SSE at 75,000, then 100,000 which the memory floor aborted). A first `backlog4096` run (4.4 s connect phase) was overwritten when the label was reused for the three-repeat run; it is not in the CSVs. `--listen-backlog` sets `HYDRANT_LISTEN_BACKLOG` for the server under test.
+
+Existing variant labels are protected: `run.py` exits with an error if the label already has rows in `runs.csv` or `sweep.csv`, because replacing rows by label once destroyed a run. Choose a new label or pass `--replace-variant` to overwrite that label's rows. Columns added later (`tw_overflow_delta`, from the `TCPTimeWaitOverflow` counter) stay empty for older rows.
+
+## Build identity
+
+The committed results were produced from an uncommitted working tree on top of commit 4c9191a (`main`); every invocation in `environment.json` has `git_dirty: true`. Five server binaries were used: `unpatched` 2cbe76a6 (parent commit), `current` and `diag-netstat` f6581b5d (buffer fix, tokio `TcpListener::bind`, backlog 128, before `HYDRANT_LISTEN_BACKLOG` existed), `backlog1024` and `backlog4096` 4ae88160, `backlog1024-b`, `backlog4096-b` and `sse-extend` 31de8383, and `tokio-default-bind` 3f4af462 (SHA-256 prefixes). The committed default backlog is 4096, so `make bench-sweep` on the committed tree does not reproduce the recorded `current` configuration exactly; `--listen-backlog 128` is the closest equivalent.
 
 ## Getting past the ephemeral port limit without root
 
@@ -48,7 +54,7 @@ These settings were NOT changed for this benchmark, and no system configuration 
 ```sh
 ulimit -n 1048576                                   # per-process fd limit (already 1048576 here)
 sysctl -w net.ipv4.ip_local_port_range="1024 65535" # more ephemeral ports per destination
-sysctl -w net.core.somaxconn=65535                  # accept queue cap (tokio's default bind listens with backlog 128, measured with ss)
+sysctl -w net.core.somaxconn=65535                  # accept queue cap (tokio's default bind listens with backlog 128, from mio's source)
 sysctl -w net.ipv4.tcp_max_syn_backlog=65535
 sysctl -w fs.file-max=2097152
 sysctl -w net.ipv4.tcp_tw_reuse=1
@@ -58,4 +64,4 @@ Even then one destination tops out around 64,000 connections, so spreading over 
 
 ## Safety
 
-The script samples `MemAvailable` four times per second. If it would drop below 1.5 GiB it kills the benchmark processes and records the run as `aborted_memory`. Before each step it predicts the memory need from the previous step's measured cost and skips the step (`skipped_memory_prediction`) if it would not fit. The ladder for a transport stops at the first step that does not finish. Servers and loadgens are killed on exit, failure or Ctrl-C.
+A watchdog thread, independent of the telemetry sampler and its `/metrics` scrape, samples `MemAvailable` four times per second; the sampler reads `/metrics` over one kept-alive connection so a listener stall does not blank its samples. If it would drop below 1.5 GiB it kills the benchmark processes and records the run as `aborted_memory`. Before each step it predicts the memory need from the previous step's measured cost and skips the step (`skipped_memory_prediction`) if it would not fit. The ladder for a transport stops at the first step that does not finish. Servers and loadgens are killed on exit, failure or Ctrl-C, and on Linux they also get `PR_SET_PDEATHSIG` SIGKILL (via `ctypes`), so they die if `run.py` itself is SIGKILLed or OOM-killed. Skipped steps are written to `runs.csv` immediately.

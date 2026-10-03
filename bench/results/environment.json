@@ -1,16 +1,11 @@
 {
-  "date_utc": "2026-10-05T19:33:27+00:00",
   "cpu_model": "13th Gen Intel(R) Core(TM) i9-13980HX",
   "logical_cores": 32,
   "mem_total_kb": 16217816,
-  "mem_available_kb_at_start": 5168736,
   "swap_total_kb": 4194304,
   "kernel": "6.18.33.1-microsoft-standard-WSL2",
   "wsl2": true,
   "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
-  "git_commit": "4c9191ae905430266f63efcee65c591bc3f0e95f",
-  "git_branch": "bench/100k",
-  "git_dirty": true,
   "nofile_limit": {
     "soft": 1048576,
     "hard": 1048576
@@ -27,45 +22,13 @@
     "net.ipv4.tcp_wmem": "4096\t16384\t4194304"
   },
   "page_size_kb": 4,
-  "server": {
-    "binary": "target/release/hydrant-server",
-    "profile": "release",
-    "env": {
-      "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
-      "HYDRANT_LOG_LEVEL": "warn",
-      "HYDRANT_LISTEN_BACKLOG": 4096,
-      "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
-    }
-  },
-  "loadgen": {
-    "binary": "target/release/hydrant-loadgen",
-    "single_topic": "loadgen",
-    "spread_loopback_addresses": 64,
-    "address_block": "127.68.<run>.1 .. +63, one /24 per run",
-    "payload_bytes": 64,
-    "connect_concurrency": 128,
-    "rate_msgs_per_sec": 1,
-    "publish_duration_secs": 20,
-    "hold_idle_secs": 10,
-    "drain_timeout_secs": 10
-  },
-  "sweep": {
-    "ladder": [
-      100000
-    ],
-    "transports": [
-      "ws"
-    ],
-    "repeats": 3,
-    "repeat_points": "N=10000 and the maximum N reached",
-    "memory_floor_kib": 1572864
-  },
   "notes": [
     "Server and load generator run on the same machine and compete for CPU, so latency figures are a lower bound on quality, not a server-only measurement.",
     "Server RSS excludes kernel socket buffers; tcp_mem_* and system_used_* columns cover the kernel side (both ends of every loopback connection).",
     "The machine was in interactive use during the run, so memory deltas carry background noise (see mem_available_kb).",
     "Connections use a single topic, so one broadcast ring is shared by all subscribers.",
-    "WSL2 kernel; loopback traffic never touches a NIC."
+    "WSL2 kernel; loopback traffic never touches a NIC.",
+    "Machine facts are read at each invocation and the latest reading is kept; settings that belong to one invocation live in its entry under invocations."
   ],
   "invocations": [
     {
@@ -87,7 +50,31 @@
       "transports": [
         "ws",
         "sse"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "not recorded",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.28.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "current",
@@ -108,7 +95,31 @@
       "transports": [
         "ws",
         "sse"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "not recorded",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.224.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "diag-netstat",
@@ -122,7 +133,31 @@
       ],
       "transports": [
         "ws"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "not recorded",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "not recorded (aborted before the loadgen report was written)",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "backlog1024",
@@ -136,7 +171,31 @@
       ],
       "transports": [
         "ws"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": 1024,
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.187.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "backlog4096",
@@ -150,7 +209,31 @@
       ],
       "transports": [
         "ws"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": 4096,
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.77.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "tokio-default-bind",
@@ -164,7 +247,31 @@
       ],
       "transports": [
         "ws"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "not recorded",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.150.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "sse-extend",
@@ -179,7 +286,31 @@
       ],
       "transports": [
         "sse"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "not recorded",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.203.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "backlog1024-b",
@@ -193,21 +324,71 @@
       ],
       "transports": [
         "ws"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": 1024,
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.221.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     },
     {
       "variant": "backlog4096-b",
       "date_utc": "2026-10-05T19:33:27+00:00",
+      "mem_available_kb_at_start": 5168736,
       "server_binary": "target/release/hydrant-server",
       "server_binary_sha256": "31de8383034f04518779ac2effe0ae58474a7372774e68ff73bf67ad5a763406",
       "git_commit": "4c9191ae905430266f63efcee65c591bc3f0e95f",
       "git_dirty": true,
+      "git_branch": "bench/100k",
       "ladder": [
         100000
       ],
       "transports": [
         "ws"
-      ]
+      ],
+      "sweep": {
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": 4096,
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.68.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     }
   ]
 }
