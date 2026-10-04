@@ -66,9 +66,9 @@ Sequence numbers are tracked per subscriber: a jump counts the skipped messages 
 
 Exit codes: 0 run completed, 1 error (bad arguments, no address reachable, no connection established, JSON write failure), 2 no publish succeeded (the report is printed but meaningless), 3 loss above `--max-loss-percent` (optional; the report is printed first).
 
-A single destination address and port allows only about as many connections as the ephemeral port range (roughly 28,000 by default on Linux, 4,096 on some setups), because every connection needs a distinct source port per destination. `--spread-loopback <N>` spreads the subscriber connections round-robin over N consecutive IPv4 addresses starting at the `--url` host, which must be in 127.0.0.0/8 (for example `--url http://127.0.0.1:8080 --spread-loopback 64` uses 127.0.0.1 to 127.0.0.64). Every address in that block is local, but the server must listen on `0.0.0.0` (`HYDRANT_LISTEN_ADDR=0.0.0.0:8080`) to accept them. The publisher keeps using the `--url` host. `--hold-idle <secs>` keeps the established connections idle for that long before publishing, so an external tool can sample the server at rest. The loadgen prints a progress line once a second while connecting and the marker lines `loadgen: all connected`, `loadgen: publish starting` and `loadgen: disconnecting` on stderr; the JSON report gains `params.spread_loopback` and `params.hold_idle_secs`. See `bench/README.md` for the connection-scaling sweep.
+A single destination address and port allows only about as many connections as the ephemeral port range (roughly 28,000 by default on Linux, 4,096 on some setups), because every connection needs a distinct source port per destination. `--spread-loopback <N>` (at most the connection count and at most 65,536) spreads the subscriber connections round-robin over N consecutive IPv4 addresses starting at the `--url` host, which must be in 127.0.0.0/8 (for example `--url http://127.0.0.1:8080 --spread-loopback 64` uses 127.0.0.1 to 127.0.0.64). Every address in that block is local, but the server must listen on `0.0.0.0` (`HYDRANT_LISTEN_ADDR=0.0.0.0:8080`) to accept them. The publisher keeps using the `--url` host. `--hold-idle <secs>` keeps the established connections idle for that long before publishing, so an external tool can sample the server at rest. The loadgen prints a progress line once a second while connecting and the marker lines `loadgen: all connected`, `loadgen: publish starting` and `loadgen: disconnecting` on stderr; the JSON report gains `params.spread_loopback` and `params.hold_idle_secs`. See `bench/README.md` for the connection-scaling sweep.
 
-Measured memory, latency and connect time up to 100,000 connections are written up in [docs/scaling-to-100k.md](docs/scaling-to-100k.md).
+Measured memory, latency and connect time at up to 100,000 requested connections (99,691 to 99,982 established in the ten runs at that size, with zero lost deliveries among the established ones) are written up in [docs/scaling-to-100k.md](docs/scaling-to-100k.md).
 
 ```sh
 make build
@@ -152,7 +152,7 @@ Every option is available as an environment variable and as a CLI flag.
 | Variable | Flag | Default | Description |
 | --- | --- | --- | --- |
 | `HYDRANT_LISTEN_ADDR` | `--listen-addr` | `127.0.0.1:8080` | address to bind |
-| `HYDRANT_LISTEN_BACKLOG` | `--listen-backlog` | `4096` | listen(2) backlog, clamped by the kernel to `net.core.somaxconn` |
+| `HYDRANT_LISTEN_BACKLOG` | `--listen-backlog` | `4096` | listen(2) backlog, clamped by the kernel to `net.core.somaxconn`; a larger accept queue than tokio's default of 128, chosen as a sane default, with no measured benefit in the connection benchmark |
 | `HYDRANT_LOG_LEVEL` | `--log-level` | `info` | tracing filter directive, e.g. `info,tower_http=debug` |
 | `HYDRANT_LOG_FORMAT` | `--log-format` | `pretty` | `pretty` or `json` |
 | `HYDRANT_SHUTDOWN_TIMEOUT_SECS` | `--shutdown-timeout-secs` | `10` | max seconds to drain connections after SIGTERM or SIGINT |
