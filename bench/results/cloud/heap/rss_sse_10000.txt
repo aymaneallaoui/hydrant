@@ -1,0 +1,2 @@
+baseline: VmRSS:	 8460 kB RssAnon:	 1960 kB 
+idle at gauge 10000: VmRSS:	 279016 kB RssAnon:	 272516 kB 

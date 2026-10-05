@@ -21,6 +21,22 @@ COLUMNS = ["t_s", "cycle", "phase", "gauge", "server_rss_kb", "server_rss_anon_k
            "server_threads", "server_fds", "mem_available_kb"]
 
 
+def malloc_stats(pid, stderr_path):
+    """glibc malloc_stats() writes to the server's stderr; return the totals it printed last."""
+    subprocess.run(["gdb", "-q", "-batch", "-p", str(pid), "-ex", "call (void)malloc_stats()"],
+                   capture_output=True, check=False)
+    time.sleep(0.5)
+    text = Path(stderr_path).read_text(errors="replace")
+    tail = text.rsplit("Total (incl. mmap):", 1)
+    if len(tail) < 2:
+        return "unavailable"
+    values = {}
+    for line in tail[1].splitlines()[1:3]:
+        key, _, value = line.partition("=")
+        values[key.strip()] = int(value)
+    return f"system {values.get('system bytes', 0) // 1024} kB, in use {values.get('in use bytes', 0) // 1024} kB"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--transport", default="ws", choices=["ws", "sse"])
@@ -34,7 +50,8 @@ def main():
     parser.add_argument("--server-env", action="append", default=[], metavar="KEY=VALUE",
                         help="extra environment for the server, for example MALLOC_ARENA_MAX=2")
     parser.add_argument("--out", type=Path, required=True, help="CSV file for the samples")
-    parser.add_argument("--label", default="")
+    parser.add_argument("--malloc-stats", action="store_true",
+                        help="after each settle, call glibc malloc_stats() in the server through gdb and report in-use and system bytes")
     args = parser.parse_args()
 
     env = {k: v for k, v in os.environ.items() if not k.startswith("HYDRANT_")}
@@ -43,7 +60,10 @@ def main():
     for item in args.server_env:
         key, _, value = item.partition("=")
         env[key] = value
-    server = subprocess.Popen([str(args.server_bin)], env=env, preexec_fn=harness.die_with_parent)
+    stderr_path = args.out.with_suffix(".server.log")
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    server_log = open(stderr_path, "wb")
+    server = subprocess.Popen([str(args.server_bin)], env=env, stderr=server_log, preexec_fn=harness.die_with_parent)
     rows, state = [], {"cycle": 0, "phase": "start"}
     stop = threading.Event()
     scraper = harness.MetricsScraper(args.port)
@@ -64,10 +84,10 @@ def main():
             stop.wait(0.5)
 
     try:
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            if scraper.scrape()[0] is not None:
-                break
+        deadline = time.monotonic() + 30
+        while scraper.scrape()[0] is None:
+            if time.monotonic() > deadline or server.poll() is not None:
+                raise RuntimeError("server did not become healthy")
             time.sleep(0.1)
         threading.Thread(target=sampler, daemon=True).start()
         time.sleep(2)
@@ -85,7 +105,7 @@ def main():
             ]
             with open(os.devnull, "wb") as sink:
                 code = subprocess.call(cmd, stdout=sink, stderr=sink, preexec_fn=harness.die_with_parent)
-            peak = max((r["server_rss_kb"] or 0) for r in rows if r["cycle"] == cycle)
+            peak = max((r["server_rss_kb"] or 0 for r in rows if r["cycle"] == cycle), default=0)
             state["phase"] = "after"
             drained = time.monotonic()
             while time.monotonic() - drained < args.settle:
@@ -95,13 +115,15 @@ def main():
             summary.append((cycle, code, peak, first["server_rss_kb"], last["server_rss_kb"], last["server_rss_anon_kb"], last["gauge"]))
             print(f"cycle {cycle}: loadgen exit {code}, peak rss {peak} kB, rss right after {first['server_rss_kb']} kB, "
                   f"after {args.settle:.0f}s {last['server_rss_kb']} kB (anon {last['server_rss_anon_kb']} kB), gauge {last['gauge']}", flush=True)
+            if args.malloc_stats:
+                print(f"  malloc_stats: {malloc_stats(server.pid, stderr_path)}", flush=True)
     finally:
         stop.set()
         time.sleep(0.6)
         server.kill()
         server.wait()
         scraper.close()
-        args.out.parent.mkdir(parents=True, exist_ok=True)
+        server_log.close()
         with open(args.out, "w", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=COLUMNS)
             writer.writeheader()

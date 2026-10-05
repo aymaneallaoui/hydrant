@@ -1,0 +1,23 @@
+Live heap bytes per connection at the peak of a heaptrack profile, server holding 10,000 idle connections,
+profiling build of commit cfa8d91 plus the run.py changes (release profile with line tables, not stripped).
+Peak RSS minus baseline RSS is the figure the sweep reports; heap bytes above RSS are allocated but untouched pages.
+
+== ws: live heap at peak 6193 bytes per connection; RSS idle minus baseline 6513 bytes per connection (8308 kB to 71912 kB)
+      4096 B/conn   66.1%  tungstenite read buffer: BytesMut::with_capacity(4096)
+      1536 B/conn   24.8%  WebSocket pump task: spawned future from on_upgrade
+       278 B/conn    4.5%  other (runtime, hub, small per-connection state)
+       256 B/conn    4.1%  tokio I/O registration
+        24 B/conn    0.4%  topic name Arc<str>
+         2 B/conn    0.0%  hyper HTTP/1 read buffer: BytesMut reserve in poll_read_head, 8 KiB initial, grown once to 16 KiB
+
+== sse: live heap at peak 35535 bytes per connection; RSS idle minus baseline 27705 bytes per connection (8460 kB to 279016 kB)
+     16426 B/conn   46.2%  hyper HTTP/1 read buffer: BytesMut reserve in poll_read_head, 8 KiB initial, grown once to 16 KiB
+      8193 B/conn   23.1%  hyper HTTP/1 write buffer: Vec::with_capacity(8192) in Buffered::new
+      3632 B/conn   10.2%  other (runtime, hub, small per-connection state)
+      3501 B/conn    9.9%  axum route table rebuilt per connection: Router::with_state in the make-service
+      2080 B/conn    5.9%  tokio mpsc channel(1) for the SSE pump: 32-slot block plus Chan
+       768 B/conn    2.2%  SSE pump task: spawned future
+       656 B/conn    1.8%  http HeaderMap or Extensions of the request and response
+       256 B/conn    0.7%  tokio I/O registration
+        24 B/conn    0.1%  topic name Arc<str>
+
