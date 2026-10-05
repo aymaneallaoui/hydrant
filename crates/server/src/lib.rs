@@ -51,7 +51,9 @@ pub async fn serve(
         trigger.notify_one();
     };
 
-    let server = axum::serve(listener, router(state))
+    // into_make_service turns the router into routes once; serving the Router directly rebuilds
+    // its route table for every accepted connection and keeps that copy alive with the connection.
+    let server = axum::serve(listener, router(state).into_make_service())
         .with_graceful_shutdown(graceful)
         .into_future();
     tokio::pin!(server);
