@@ -36,7 +36,7 @@ grep -E 'VmRSS|RssAnon' "/proc/$SERVER_PID/status" | tr -s ' ' | tr '\n' ' ' | s
 wait $LG || true
 kill -INT $SERVER_PID 2>/dev/null || true
 wait $HT || true
-RAW=$(ls -t "$OUT"/heaptrack_$TAG*.zst "$OUT"/heaptrack_$TAG*.gz 2>/dev/null | head -1)
+RAW=$(find "$OUT" -maxdepth 1 -name "heaptrack_$TAG*" \( -name '*.zst' -o -name '*.gz' \) -printf '%T@ %p\n' | sort -rn | head -1 | cut -d' ' -f2-)
 heaptrack_print -f "$RAW" -n 40 -s 3 > "$OUT/summary_$TAG.txt" 2>&1
 heaptrack_print -f "$RAW" --flamegraph-cost-type peak -F "$OUT/peak_stacks_$TAG.txt" > /dev/null 2>&1 || true
 echo "wrote $OUT/summary_$TAG.txt"
