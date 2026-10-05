@@ -20,7 +20,9 @@ from matplotlib.ticker import FuncFormatter  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "bench" / "results"
+CLOUD = RESULTS / "cloud"
 OUT = ROOT / "docs" / "img"
+CLOUD_LABEL = "cloud sandbox, 4 cores"
 
 THEMES = {
     "light": {
@@ -35,8 +37,11 @@ THEMES = {
 SUFFIX = {"light": "", "dark": "-dark"}
 
 
-def read(name):
-    with open(RESULTS / name, newline="") as handle:
+def read(name, base=RESULTS):
+    path = base / name
+    if not path.exists():
+        return []
+    with open(path, newline="") as handle:
         return list(csv.DictReader(handle))
 
 
@@ -60,12 +65,19 @@ def ols(points):
 
 SWEEP = read("sweep.csv")
 RUNS = read("runs.csv")
-IDLE = [r for r in SWEEP if r["phase"] == "idle" and num(r["server_rss_kb"]) is not None]
+CLOUD_SWEEP = read("sweep.csv", CLOUD)
+CLOUD_RUNS = read("runs.csv", CLOUD)
+IDLE = [r for r in SWEEP + CLOUD_SWEEP if r["phase"] == "idle" and num(r["server_rss_kb"]) is not None]
 
 SERIES = [
     ("ws_before", "WebSocket, before fix", "orange", lambda r: r["transport"] == "ws" and r["variant"] == "unpatched"),
     ("ws_after", "WebSocket, after fix", "blue", lambda r: r["transport"] == "ws" and r["variant"] == "current"),
     ("sse", "SSE", "aqua", lambda r: r["transport"] == "sse" and r["variant"] in ("unpatched", "current", "sse-extend")),
+]
+# Runs from the second machine (bench/results/cloud) are drawn hollow with their own markers.
+CLOUD_SERIES = [
+    ("ws_cloud", f"WebSocket, {CLOUD_LABEL}", "blue", lambda r: r["transport"] == "ws" and r["variant"] == "cloud-ws"),
+    ("sse_cloud", f"SSE, {CLOUD_LABEL}", "aqua", lambda r: r["transport"] == "sse" and r["variant"] == "cloud-sse"),
 ]
 
 
@@ -109,8 +121,15 @@ def chart_rss(theme):
     fig, ax = plt.subplots(figsize=(8, 4.8))
     fig.subplots_adjust(left=0.1, right=0.94, top=0.78, bottom=0.22)
     fits = {}
-    markers = {"ws_before": "o", "ws_after": "s", "sse": "^"}
-    for key, label, color, pred in SERIES:
+    markers = {"ws_before": "o", "ws_after": "s", "sse": "^", "ws_cloud": "D", "sse_cloud": "v"}
+    for key, label, color, pred in SERIES + CLOUD_SERIES:
+        if key in ("ws_cloud", "sse_cloud"):
+            rows = series_rows(IDLE, pred)
+            if rows:
+                ax.scatter([num(r["gauge_connections"]) for r in rows], [num(r["server_rss_kb"]) / 1024 for r in rows],
+                           s=30, marker=markers[key], zorder=3, linewidths=1.2, facecolors=c["surface"],
+                           edgecolors=c[color], label=label)
+            continue
         rows = series_rows(IDLE, pred)
         pts = [(num(r["gauge_connections"]), num(r["server_rss_kb"]) / 1024) for r in rows]
         slope, icpt = ols(pts)
@@ -134,11 +153,14 @@ def chart_rss(theme):
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: fmt_int(v)))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: fmt_int(v)))
     ratio = fits["ws_before"] / fits["ws_after"]
+    if CLOUD_SWEEP:
+        ax.legend(loc="center right", fontsize=8, labelcolor=c["ink"])
     frame(
         fig,
         f"The WebSocket buffer fix cut server memory per connection about {ratio:.0f}x",
         "Source: bench/results/sweep.csv, phase idle, all runs. Lines are least-squares fits of RSS against live connections.\n"
-        "Hollow marker: run stopped by the memory floor after its idle sample. SSE pools the unpatched, current and sse-extend runs (same server code).",
+        "Hollow marker: run stopped by the memory floor after its idle sample, or a run from the cloud sandbox (bench/results/cloud, no fit). "
+        "SSE pools the unpatched, current and sse-extend runs (same server code).",
         c,
         "Server process RSS with every connection established and idle; kernel socket memory is not included",
     )
@@ -154,8 +176,9 @@ def median_at_max(rows, key):
 
 def chart_per_conn(theme):
     c = style(theme)
-    fig, ax = plt.subplots(figsize=(8, 4.6))
-    fig.subplots_adjust(left=0.27, right=0.95, top=0.78, bottom=0.25)
+    cloud_rows = sum(1 for cs in CLOUD_SERIES if series_rows(IDLE, cs[3]))
+    fig, ax = plt.subplots(figsize=(8, 4.6 + 1.1 * cloud_rows))
+    fig.subplots_adjust(left=0.27, right=0.95, top=0.78 + 0.04 * cloud_rows, bottom=0.25 - 0.05 * cloud_rows)
     parts = [
         ("server_rss_per_conn_bytes", "Server RSS", None),
         ("loadgen_rss_per_conn_bytes", "Load generator RSS (client)", "////"),
@@ -163,7 +186,7 @@ def chart_per_conn(theme):
     ]
     height, gap = 0.24, 0.27
     yticks, ylabels, server_vals = [], [], {}
-    for gi, (key, label, color, pred) in enumerate(SERIES):
+    for gi, (key, label, color, pred) in enumerate(SERIES + [cs for cs in CLOUD_SERIES if series_rows(IDLE, cs[3])]):
         rows = [r for r in series_rows(IDLE, pred) if r["status"] == "ok"]
         yc = gi * 1.15
         top_n = max(int(r["n"]) for r in rows)
@@ -197,7 +220,7 @@ def chart_per_conn(theme):
         fig,
         f"Per connection: {server_vals['ws_before']:.0f} KiB for WebSocket before the fix, "
         f"{server_vals['ws_after']:.0f} after, {server_vals['sse']:.0f} for SSE",
-        "Source: bench/results/sweep.csv, phase idle, status ok runs only, median over the runs at the largest such N of each series. KiB = 1024 bytes.\n"
+        "Source: bench/results/sweep.csv and bench/results/cloud/sweep.csv (cloud sandbox rows), phase idle, status ok runs only, median over the runs at the largest such N of each series. KiB = 1024 bytes.\n"
         "Load generator figure is its whole RSS divided by N, so it includes fixed overhead. Slab is the SUnreclaim delta; it needs the newer sweep columns.",
         c,
         "Server, client and kernel memory shown separately",
@@ -299,10 +322,12 @@ def chart_connect(theme):
         ("sse", "current"): ("aqua", "v", True, "SSE, current build"),
         ("sse", "sse-extend"): ("aqua", "d", True, "SSE, extended run"),
     }
+    variant_style[("ws", "cloud-ws")] = ("blue", "D", False, f"WebSocket, {CLOUD_LABEL}")
+    variant_style[("sse", "cloud-sse")] = ("aqua", "v", False, f"SSE, {CLOUD_LABEL}")
     seen = {}
     ws100 = []
     by_backlog = {}
-    for r in RUNS:
+    for r in RUNS + CLOUD_RUNS:
         if r["status"] != "ok" or num(r["connect_secs"]) is None:
             continue
         variant = r["variant"].removesuffix("-b")
@@ -359,7 +384,7 @@ def chart_connect(theme):
     frame(
         fig,
         f"Connecting 100,000 WebSockets took between {min(ws100):.1f} and {max(ws100):.0f} s across {len(ws100)} runs",
-        "Source: bench/results/runs.csv (left), bench/results/ramp_ws.csv, ramp_ws_backlog4096.csv, ramp_ws_backlog1024.csv (right).\n"
+        "Source: bench/results/runs.csv and bench/results/cloud/runs.csv, hollow diamonds and triangles (left), bench/results/ramp_ws.csv, ramp_ws_backlog4096.csv, ramp_ws_backlog1024.csv (right).\n"
         "Backlog 1024 runs (s): " + ", ".join(f"{t:.1f}" for t in by_backlog["backlog1024"])
         + ". Backlog 4096 runs (s): " + ", ".join(f"{t:.1f}" for t in by_backlog["backlog4096"])
         + ". Right panel: time zero is the first connecting-phase sample, within 0.5 s of launch; gauge samples only (blank scrapes dropped); \"table\" is connect_secs, which runs until every attempt connected or failed.",

@@ -30,7 +30,9 @@ run() {
   echo "== $variant $(date -u +%FT%TZ) N=$N repeats=$REPEATS args: $*" | tee -a "$LOG"
   python3 bench/run.py --variant "$variant" --out "$OUT" --transports ws --ladder "$N" \
     --repeats "$REPEATS" "$@" 2>&1 | grep -E '^\[run|^\[limit|^\[skip' | tee -a "$LOG"
-  echo "softnet_stat after: $(awk '{d+=strtonum("0x"$2)} END {print d}' /proc/net/softnet_stat) dropped; conntrack count $(cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null || echo n/a)" | tee -a "$LOG"
+  local dropped=0 field
+  while read -r _ field _; do dropped=$((dropped + 16#$field)); done < /proc/net/softnet_stat
+  echo "softnet_stat after: $dropped dropped; conntrack count $(cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null || echo n/a)" | tee -a "$LOG"
 }
 
 ulimit -n 20000
