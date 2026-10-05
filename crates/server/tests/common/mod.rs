@@ -71,12 +71,13 @@ impl TestServer {
 
     pub async fn request_raw(&self, method: &str, path: &str, body: &[u8]) -> (u16, Vec<u8>) {
         let mut stream = TcpStream::connect(self.addr).await.expect("connect");
-        let head = format!(
+        let mut request = format!(
             "{method} {path} HTTP/1.1\r\nHost: test\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
             body.len()
-        );
-        stream.write_all(head.as_bytes()).await.expect("write head");
-        stream.write_all(body).await.expect("write body");
+        )
+        .into_bytes();
+        request.extend_from_slice(body);
+        stream.write_all(&request).await.expect("write request");
         let mut response = Vec::new();
         tokio::time::timeout(IO_TIMEOUT, stream.read_to_end(&mut response))
             .await
