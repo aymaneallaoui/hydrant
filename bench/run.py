@@ -178,6 +178,22 @@ class MetricsScraper:
         return body, parse_metrics(body)
 
 
+def connection_gauge(metrics):
+    values = [v for k, v in metrics.items() if k.startswith("hydrant_connections{")]
+    return sum(values) if values else None
+
+
+def gauge_reached(metrics, target):
+    value = connection_gauge(metrics)
+    return value is not None and value == target
+
+
+def run_status(status, exit_code):
+    if status == "ok" and exit_code not in (None, 0):
+        return f"loadgen_exit_{exit_code}"
+    return status
+
+
 def parse_metrics(body):
     values = {}
     for line in body.splitlines():
@@ -350,9 +366,11 @@ class Run:
         value = None
         while time.monotonic() < deadline and not self.abort_reason:
             _, metrics = self.scraper.scrape()
-            value = sum(v for k, v in metrics.items() if k.startswith("hydrant_connections{"))
-            if value == target:
-                return True, value
+            current = connection_gauge(metrics)
+            if current is not None:
+                value = current
+                if value == target:
+                    return True, value
             time.sleep(0.1)
         return False, value
 
@@ -438,6 +456,9 @@ class Run:
             self.loadgen.wait(timeout=120)
             result["teardown_loadgen_secs"] = round(time.monotonic() - self.markers["disconnecting"], 3)
             result["loadgen_exit_code"] = self.loadgen.returncode
+            result["status"] = run_status(result["status"], self.loadgen.returncode)
+            if result["status"] != "ok":
+                result["flags"].append(f"loadgen_exit={self.loadgen.returncode}")
             time.sleep(IDLE_SETTLE_SECS)
             self.phase = "after"
             self.point("after")
@@ -721,6 +742,20 @@ def rederive(out):
     write_csv(path, SWEEP_COLUMNS, rows)
 
 
+def self_test():
+    assert connection_gauge({}) is None
+    assert not gauge_reached({}, 0)
+    assert not gauge_reached({"process_cpu": 1.0}, 0)
+    assert gauge_reached({'hydrant_connections{transport="ws"}': 0.0}, 0)
+    two = {'hydrant_connections{transport="ws"}': 2.0, 'hydrant_connections{transport="sse"}': 3.0}
+    assert gauge_reached(two, 5) and not gauge_reached(two, 0)
+    assert run_status("ok", 0) == "ok" and run_status("ok", None) == "ok"
+    for code in (1, 2, 3):
+        assert run_status("ok", code) == f"loadgen_exit_{code}"
+    assert run_status("connect_failed", 2) == "connect_failed"
+    print("self-test ok")
+
+
 def main():
     global SERVER_BIN
     parser = argparse.ArgumentParser(description=__doc__)
@@ -737,8 +772,12 @@ def main():
     parser.add_argument("--server-bin", type=Path, default=SERVER_BIN)
     parser.add_argument("--listen-backlog", type=int, default=None, help="set HYDRANT_LISTEN_BACKLOG for the server (default: server default)")
     parser.add_argument("--no-repeat", action="store_true")
+    parser.add_argument("--self-test", action="store_true", help="run the built-in checks and exit")
     parser.add_argument("--rederive", action="store_true", help="recompute derived columns in an existing sweep.csv and exit")
     args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        return
     if args.rederive:
         rederive(args.out)
         return

@@ -8,7 +8,10 @@
 make bench-sweep                         # builds release binaries, runs the full sweep
 make bench-sweep ARGS="--transports ws --ladder 1000 5000 --no-repeat"
 python3 bench/run.py --variant unpatched --server-bin /path/to/older/hydrant-server
+python3 bench/run.py --self-test         # gauge and exit-status checks, no server needed
 ```
+
+A run whose load generator exits nonzero is recorded with status `loadgen_exit_<code>` and does not advance the ladder.
 
 Results go to `bench/results/`:
 
