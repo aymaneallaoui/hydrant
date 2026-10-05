@@ -23,7 +23,8 @@ restore_sysctls() {
     echo "${SAVED[$key]}" > "/proc/sys/${key//.//}"
     echo "sysctl $key restored to $(cat "/proc/sys/${key//.//}")" | tee -a "$LOG"
   done
-  SAVED=()
+  unset SAVED
+  declare -gA SAVED
 }
 run() {
   local variant=$1; shift
