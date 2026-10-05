@@ -59,7 +59,8 @@ RUN_FIELDS = [
     "publish_not_sent", "expected", "received", "missing", "loss_percent",
     "lat_min_ms", "lat_mean_ms", "lat_p50_ms", "lat_p90_ms", "lat_p99_ms",
     "lat_p999_ms", "lat_max_ms", "deliveries_per_sec", "listen_overflows_delta", "listen_drops_delta", "reqq_full_cookies_delta",
-    "abort_on_data_delta", "syn_retrans_delta", "tw_overflow_delta", "flags",
+    "abort_on_data_delta", "syn_retrans_delta", "tw_overflow_delta", "mem_pressure_delta",
+    "softnet_dropped_delta", "flags",
 ]
 DERIVED_FIELDS = [
     "server_rss_per_conn_bytes", "server_anon_per_conn_bytes",
@@ -73,7 +74,7 @@ SWEEP_COLUMNS = (
 RUNS_COLUMNS = ["variant", "run_id", "transport", "n", "rep"] + RUN_FIELDS
 TS_COLUMNS = [
     "t_s", "phase", "gauge_connections", "server_rss_kb", "server_rss_anon_kb",
-    "loadgen_rss_kb", "tcp_mem_pages", "tcp_tw", "mem_available_kb",
+    "loadgen_rss_kb", "tcp_mem_pages", "tcp_tw", "mem_available_kb", "accept_queue", "syn_recv",
 ]
 
 
@@ -214,16 +215,38 @@ NETSTAT_KEYS = {
     "TCPAbortOnData": "abort_on_data_delta",
     "TCPSynRetrans": "syn_retrans_delta",
     "TCPTimeWaitOverflow": "tw_overflow_delta",
+    "TCPMemoryPressures": "mem_pressure_delta",
+    "softnet_dropped": "softnet_dropped_delta",
 }
 
 
 def netstat_counters():
     lines = read_text("/proc/net/netstat").splitlines()
+    out = {}
     for head, vals in zip(lines, lines[1:]):
         if head.startswith("TcpExt:"):
             names, nums = head.split()[1:], vals.split()[1:]
-            return {k: int(nums[names.index(k)]) for k in NETSTAT_KEYS if k in names}
-    return {}
+            out = {k: int(nums[names.index(k)]) for k in NETSTAT_KEYS if k in names}
+            break
+    dropped = [int(line.split()[1], 16) for line in read_text("/proc/net/softnet_stat").splitlines()]
+    if dropped:
+        out["softnet_dropped"] = sum(dropped)
+    return out
+
+
+def listener_queues(port):
+    """Accept-queue depth of the listener on `port` and the number of SYN_RECV sockets, from /proc/net/tcp."""
+    local = f":{port:04X} "
+    accept_queue, syn_recv = None, 0
+    for line in read_text("/proc/net/tcp").splitlines()[1:]:
+        fields = line.split()
+        if len(fields) < 5:
+            continue
+        if fields[3] == "03":
+            syn_recv += 1
+        elif fields[3] == "0A" and fields[1].endswith(local.strip()):
+            accept_queue = int(fields[4].partition(":")[2], 16)
+    return accept_queue, syn_recv
 
 
 def port_is_free(port):
@@ -334,6 +357,7 @@ class Run:
             if self.server is not None and self.server.poll() is None:
                 lg = self.loadgen.pid if self.loadgen and self.loadgen.poll() is None else None
                 row = sample(self.server.pid, lg, self.sampler_scraper)
+                row["accept_queue"], row["syn_recv"] = listener_queues(self.port)
                 row["t_s"] = self.now()
                 row["phase"] = self.phase
                 with self.lock:
@@ -409,9 +433,9 @@ class Run:
             cmd = [
                 str(LOADGEN_BIN), "--url", f"http://{self.base_ip}:{self.port}",
                 "--transport", self.transport, "--connections", str(self.n),
-                "--spread-loopback", str(SPREAD), "--rate", str(args.rate),
+                "--spread-loopback", str(args.spread_loopback), "--rate", str(args.rate),
                 "--duration", str(args.duration), "--payload-bytes", str(PAYLOAD_BYTES),
-                "--connect-concurrency", str(CONNECT_CONCURRENCY),
+                "--connect-concurrency", str(args.connect_concurrency),
                 "--drain-timeout", "10", "--hold-idle", str(HOLD_IDLE_SECS),
                 "--json", str(report_path),
             ]
@@ -630,10 +654,10 @@ def write_environment(args, addr_block):
             "loadgen": {
                 "binary": repo_relative(LOADGEN_BIN),
                 "single_topic": "loadgen",
-                "spread_loopback_addresses": SPREAD,
-                "address_block": f"127.{addr_block}.<run>.1 .. +{SPREAD - 1}, one /24 per run",
+                "spread_loopback_addresses": args.spread_loopback,
+                "address_block": f"127.{addr_block}.<run>.1 .. +{args.spread_loopback - 1}, one /24 per run",
                 "payload_bytes": PAYLOAD_BYTES,
-                "connect_concurrency": CONNECT_CONCURRENCY,
+                "connect_concurrency": args.connect_concurrency,
                 "rate_msgs_per_sec": args.rate,
                 "publish_duration_secs": args.duration,
                 "hold_idle_secs": HOLD_IDLE_SECS,
@@ -692,6 +716,8 @@ def environment():
             "net.ipv4.ip_local_port_range", "net.core.somaxconn", "net.ipv4.tcp_tw_reuse",
             "net.ipv4.tcp_max_tw_buckets", "net.ipv4.tcp_max_orphans", "net.ipv4.tcp_max_syn_backlog",
             "fs.file-max", "net.ipv4.tcp_mem", "net.ipv4.tcp_rmem", "net.ipv4.tcp_wmem",
+            "net.ipv4.tcp_syncookies", "net.core.netdev_max_backlog", "fs.nr_open",
+            "net.netfilter.nf_conntrack_max", "net.netfilter.nf_conntrack_count",
         )
     }
     import resource
@@ -703,6 +729,7 @@ def environment():
         "swap_total_kb": mem.get("SwapTotal"),
         "kernel": platform.release(),
         "wsl2": "microsoft" in platform.release().lower(),
+        "root": os.geteuid() == 0 if hasattr(os, "geteuid") else None,
         "rustc": sh(["rustc", "--version"]),
         "nofile_limit": {"soft": soft, "hard": hard},
         "sysctl": sysctl,
@@ -771,6 +798,9 @@ def main():
     parser.add_argument("--variant", default="current", help="label for the server build under test")
     parser.add_argument("--server-bin", type=Path, default=SERVER_BIN)
     parser.add_argument("--listen-backlog", type=int, default=None, help="set HYDRANT_LISTEN_BACKLOG for the server (default: server default)")
+    parser.add_argument("--spread-loopback", type=int, default=SPREAD, help="loopback destination addresses per run")
+    parser.add_argument("--connect-concurrency", type=int, default=CONNECT_CONCURRENCY,
+                        help="loadgen --connect-concurrency")
     parser.add_argument("--no-repeat", action="store_true")
     parser.add_argument("--self-test", action="store_true", help="run the built-in checks and exit")
     parser.add_argument("--rederive", action="store_true", help="recompute derived columns in an existing sweep.csv and exit")
