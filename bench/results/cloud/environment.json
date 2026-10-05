@@ -34,7 +34,7 @@
     "Server RSS excludes kernel socket buffers; tcp_mem_* and system_used_* columns cover the kernel side (both ends of every loopback connection).",
     "The machine was in interactive use during the run, so memory deltas carry background noise (see mem_available_kb).",
     "Connections use a single topic, so one broadcast ring is shared by all subscribers.",
-    "WSL2 kernel; loopback traffic never touches a NIC.",
+    "loopback traffic never touches a NIC.",
     "Machine facts are read at each invocation and the latest reading is kept; settings that belong to one invocation live in its entry under invocations."
   ],
   "invocations": [

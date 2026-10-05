@@ -26,6 +26,17 @@ restore_sysctls() {
   unset SAVED
   declare -gA SAVED
 }
+CONNTRACK_RULE=(INPUT -i lo -m conntrack --ctstate NEW)
+cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  restore_sysctls
+  iptables -D "${CONNTRACK_RULE[@]}" 2>/dev/null && echo "conntrack rule removed" | tee -a "$LOG"
+  exit "$status"
+}
+# Any failure or signal after the first host change must still put the host back.
+trap cleanup EXIT INT TERM
+
 run() {
   local variant=$1; shift
   echo "== $variant $(date -u +%FT%TZ) N=$N repeats=$REPEATS args: $*" | tee -a "$LOG"
@@ -64,12 +75,13 @@ set_sysctl net.ipv4.tcp_max_syn_backlog 64
 run cloud-ws-syncookies0-synbacklog64 --listen-backlog 64
 restore_sysctls
 
-# Conntrack table full signature: hook conntrack on INPUT and cap the table below N.
-if iptables -I INPUT -m conntrack --ctstate NEW -j ACCEPT 2>>"$LOG"; then
+# Conntrack table full signature: a loopback-only match with no target registers the conntrack
+# hook without accepting anything the chain would otherwise reject; then cap the table below N.
+if iptables -I "${CONNTRACK_RULE[@]}" 2>>"$LOG"; then
   set_sysctl net.netfilter.nf_conntrack_max 12000
   run cloud-ws-conntrack12000
   restore_sysctls
-  iptables -D INPUT -m conntrack --ctstate NEW -j ACCEPT
+  iptables -D "${CONNTRACK_RULE[@]}"
   dmesg 2>/dev/null | grep -i conntrack | tail -3 | tee -a "$LOG" || true
 fi
 
@@ -83,3 +95,5 @@ echo "== cloud-sse $(date -u +%FT%TZ)" | tee -a "$LOG"
 python3 bench/run.py --variant cloud-sse --out "$OUT" --transports sse --ladder 1000 5000 10000 "$N" \
   --repeats "$REPEATS" 2>&1 | grep -E '^\[run|^\[limit|^\[skip' | tee -a "$LOG"
 echo "done $(date -u +%FT%TZ)" | tee -a "$LOG"
+trap - EXIT INT TERM
+restore_sysctls

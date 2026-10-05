@@ -235,16 +235,16 @@ def netstat_counters():
 
 
 def listener_queues(port):
-    """Accept-queue depth of the listener on `port` and the number of SYN_RECV sockets, from /proc/net/tcp."""
-    local = f":{port:04X} "
+    """Accept-queue depth of the listener on `port` and its number of SYN_RECV sockets, from /proc/net/tcp."""
+    local = f":{port:04X}"
     accept_queue, syn_recv = None, 0
     for line in read_text("/proc/net/tcp").splitlines()[1:]:
         fields = line.split()
-        if len(fields) < 5:
+        if len(fields) < 5 or not fields[1].endswith(local):
             continue
         if fields[3] == "03":
             syn_recv += 1
-        elif fields[3] == "0A" and fields[1].endswith(local.strip()):
+        elif fields[3] == "0A":
             accept_queue = int(fields[4].partition(":")[2], 16)
     return accept_queue, syn_recv
 
@@ -632,6 +632,7 @@ def write_environment(args, addr_block):
             "server_binary": repo_relative(SERVER_BIN),
             "server_binary_sha256": digest[0] if digest else None,
             **git,
+            "sysctl": env["sysctl"],
             "ladder": args.ladder,
             "transports": args.transports,
             "sweep": {
@@ -742,7 +743,8 @@ def environment():
             "The machine was in interactive use during the run, so memory deltas "
             "carry background noise (see mem_available_kb).",
             "Connections use a single topic, so one broadcast ring is shared by all subscribers.",
-            "WSL2 kernel; loopback traffic never touches a NIC.",
+            ("WSL2 kernel; " if "microsoft" in platform.release().lower() else "")
+            + "loopback traffic never touches a NIC.",
             "Machine facts are read at each invocation and the latest reading is kept; "
             "settings that belong to one invocation live in its entry under invocations.",
         ],
