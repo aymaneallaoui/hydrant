@@ -1,0 +1,60 @@
+{
+  "params": {
+    "url": "http://127.115.2.1:47301",
+    "topic": "loadgen",
+    "transport": "sse",
+    "connections": 1000,
+    "rate": 1,
+    "duration_secs": 20,
+    "payload_bytes": 64,
+    "connect_concurrency": 128,
+    "drain_timeout_secs": 10,
+    "spread_loopback": 64,
+    "hold_idle_secs": 10
+  },
+  "interrupted": false,
+  "connections": {
+    "requested": 1000,
+    "established": 1000,
+    "failed": 0,
+    "closed_early": 0,
+    "closed_early_reasons": {},
+    "connect_errors": {},
+    "fd_limit_failures": 0,
+    "connect_secs": 0.101,
+    "connects_per_sec": 9946.895
+  },
+  "publish": {
+    "scheduled": 20,
+    "ok": 20,
+    "failed": 0,
+    "not_sent": 0,
+    "requested_rate": 1.0,
+    "achieved_rate": 1.0,
+    "rate_shortfall": false,
+    "phase_secs": 20.001,
+    "first_error": null
+  },
+  "deliveries": {
+    "expected": 20000,
+    "received": 20000,
+    "missing": 0,
+    "loss_percent": 0.0,
+    "malformed": 0,
+    "duplicates": 0,
+    "gaps": 0
+  },
+  "latency_ms": {
+    "min": 0.516,
+    "mean": 5.057,
+    "p50": 5.151,
+    "p90": 7.091,
+    "p99": 8.287,
+    "p999": 8.399,
+    "max": 8.439
+  },
+  "throughput": {
+    "deliveries_per_sec": 999.937,
+    "publish_phase_secs": 20.001
+  }
+}

@@ -1,0 +1,48 @@
+parameters
+  url                               http://127.23.2.1:47301
+  topic                             loadgen
+  transport                         ws
+  connections                       19000
+  rate (msg/s)                      1
+  duration (s)                      20
+  payload (bytes)                   64
+  connect concurrency               128
+  drain timeout (s)                 10
+  spread loopback addresses         64
+  hold idle (s)                     10
+
+connections
+  requested                         19000
+  established                       19000
+  failed                            0
+  closed early                      0
+  connect phase (s)                 2.279
+  connects per second               8336
+
+publish
+  scheduled                         20
+  ok                                20
+  failed                            0
+  not sent                          0
+  requested rate (msg/s)            1.0
+  achieved rate (msg/s)             1.0
+  publish phase (s)                 20.001
+
+deliveries
+  expected                          380000
+  received                          380000
+  missing                           0
+  loss (%)                          0.000
+  malformed                         0
+  duplicates                        0
+  gaps seen                         0
+  deliveries/s over publish phase   18999
+
+latency (ms)
+  min                               0.459
+  mean                              48.650
+  p50                               48.831
+  p90                               79.743
+  p99                               103.871
+  p99.9                             109.951
+  max                               110.527

@@ -1,0 +1,22 @@
+# HELP hydrant_build_info Build information.
+# TYPE hydrant_build_info gauge
+hydrant_build_info{version="0.1.0"} 1
+# HELP hydrant_connections Open subscriber connections.
+# TYPE hydrant_connections gauge
+hydrant_connections{transport="sse"} 5000
+hydrant_connections{transport="ws"} 0
+# HELP hydrant_topics Topics with at least one subscriber.
+# TYPE hydrant_topics gauge
+hydrant_topics 1
+# HELP hydrant_messages_published_total Messages accepted for publish.
+# TYPE hydrant_messages_published_total counter
+hydrant_messages_published_total 11
+# HELP hydrant_messages_dropped_total Messages skipped by lagging subscribers under the drop policy.
+# TYPE hydrant_messages_dropped_total counter
+hydrant_messages_dropped_total 0
+# HELP hydrant_slow_consumer_disconnects_total Subscribers disconnected for being too slow.
+# TYPE hydrant_slow_consumer_disconnects_total counter
+hydrant_slow_consumer_disconnects_total 0
+# HELP hydrant_connections_rejected_total Subscribe requests refused because the connection limit was reached.
+# TYPE hydrant_connections_rejected_total counter
+hydrant_connections_rejected_total 0
