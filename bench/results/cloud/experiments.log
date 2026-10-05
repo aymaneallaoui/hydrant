@@ -1,0 +1,191 @@
+fd limit: soft 20000 hard 20000
+== cloud-ws 2026-10-05T21:17:28Z N=19000 repeats=5 args: --ladder 1000 5000 10000 19000
+[run 1] ws N=1000 rep=1 start, MemAvailable 15538 MiB
+[run 1] ws N=1000 rep=1 ok flags= min MemAvailable 15491 MiB
+[run 2] ws N=5000 rep=1 start, MemAvailable 15530 MiB
+[run 2] ws N=5000 rep=1 ok flags= min MemAvailable 15405 MiB
+[run 3] ws N=10000 rep=1 start, MemAvailable 15556 MiB
+[run 3] ws N=10000 rep=1 ok flags= min MemAvailable 15287 MiB
+[run 4] ws N=10000 rep=2 start, MemAvailable 15487 MiB
+[run 4] ws N=10000 rep=2 ok flags= min MemAvailable 15228 MiB
+[run 5] ws N=10000 rep=3 start, MemAvailable 15522 MiB
+[run 5] ws N=10000 rep=3 ok flags= min MemAvailable 15240 MiB
+[run 6] ws N=10000 rep=4 start, MemAvailable 15440 MiB
+[run 6] ws N=10000 rep=4 ok flags= min MemAvailable 15138 MiB
+[run 7] ws N=10000 rep=5 start, MemAvailable 15512 MiB
+[run 7] ws N=10000 rep=5 ok flags= min MemAvailable 15210 MiB
+[run 8] ws N=19000 rep=1 start, MemAvailable 15500 MiB
+[run 8] ws N=19000 rep=1 ok flags= min MemAvailable 15019 MiB
+[run 9] ws N=19000 rep=2 start, MemAvailable 15502 MiB
+[run 9] ws N=19000 rep=2 ok flags= min MemAvailable 15010 MiB
+[run 10] ws N=19000 rep=3 start, MemAvailable 15494 MiB
+[run 10] ws N=19000 rep=3 ok flags= min MemAvailable 14967 MiB
+[run 11] ws N=19000 rep=4 start, MemAvailable 15488 MiB
+[run 11] ws N=19000 rep=4 ok flags= min MemAvailable 14830 MiB
+[run 12] ws N=19000 rep=5 start, MemAvailable 15502 MiB
+[run 12] ws N=19000 rep=5 ok flags= min MemAvailable 14958 MiB
+softnet_stat after:  dropped; conntrack count 0
+sysctl net.ipv4.ip_local_port_range: 32768	60999 -> 40525	44620
+== cloud-ws-ports4096 2026-10-05T21:25:03Z N=19000 repeats=5 args: 
+[run 1] ws N=19000 rep=1 start, MemAvailable 15513 MiB
+[run 1] ws N=19000 rep=1 ok flags= min MemAvailable 14986 MiB
+[run 2] ws N=19000 rep=2 start, MemAvailable 15516 MiB
+[run 2] ws N=19000 rep=2 ok flags= min MemAvailable 14874 MiB
+[run 3] ws N=19000 rep=3 start, MemAvailable 15521 MiB
+[run 3] ws N=19000 rep=3 ok flags= min MemAvailable 15014 MiB
+[run 4] ws N=19000 rep=4 start, MemAvailable 15528 MiB
+[run 4] ws N=19000 rep=4 ok flags= min MemAvailable 15012 MiB
+[run 5] ws N=19000 rep=5 start, MemAvailable 15519 MiB
+[run 5] ws N=19000 rep=5 ok flags= min MemAvailable 15019 MiB
+softnet_stat after:  dropped; conntrack count 0
+== cloud-ws-ports4096-spread16 2026-10-05T21:28:15Z N=19000 repeats=5 args: --spread-loopback 16
+[run 1] ws N=19000 rep=1 start, MemAvailable 15537 MiB
+[run 1] ws N=19000 rep=1 ok flags= min MemAvailable 14977 MiB
+[run 2] ws N=19000 rep=2 start, MemAvailable 15517 MiB
+[run 2] ws N=19000 rep=2 ok flags= min MemAvailable 15015 MiB
+[run 3] ws N=19000 rep=3 start, MemAvailable 15520 MiB
+[run 3] ws N=19000 rep=3 ok flags= min MemAvailable 15024 MiB
+[run 4] ws N=19000 rep=4 start, MemAvailable 15528 MiB
+[run 4] ws N=19000 rep=4 ok flags= min MemAvailable 15010 MiB
+[run 5] ws N=19000 rep=5 start, MemAvailable 15519 MiB
+[run 5] ws N=19000 rep=5 ok flags= min MemAvailable 15016 MiB
+softnet_stat after:  dropped; conntrack count 0
+== cloud-ws-ports4096-spread8 2026-10-05T21:31:26Z N=19000 repeats=5 args: --spread-loopback 8
+[run 1] ws N=19000 rep=1 start, MemAvailable 15512 MiB
+[run 1] ws N=19000 rep=1 ok flags= min MemAvailable 15021 MiB
+[run 2] ws N=19000 rep=2 start, MemAvailable 15518 MiB
+[run 2] ws N=19000 rep=2 ok flags= min MemAvailable 15012 MiB
+[run 3] ws N=19000 rep=3 start, MemAvailable 15522 MiB
+[run 3] ws N=19000 rep=3 ok flags= min MemAvailable 15007 MiB
+[run 4] ws N=19000 rep=4 start, MemAvailable 15517 MiB
+[run 4] ws N=19000 rep=4 ok flags= min MemAvailable 15020 MiB
+[run 5] ws N=19000 rep=5 start, MemAvailable 15516 MiB
+[run 5] ws N=19000 rep=5 ok flags= min MemAvailable 15009 MiB
+softnet_stat after:  dropped; conntrack count 0
+== cloud-ws-ports4096-spread5 2026-10-05T21:34:38Z N=19000 repeats=5 args: --spread-loopback 5
+[run 1] ws N=19000 rep=1 start, MemAvailable 15511 MiB
+[run 1] ws N=19000 rep=1 ok flags= min MemAvailable 14991 MiB
+[run 2] ws N=19000 rep=2 start, MemAvailable 15521 MiB
+[run 2] ws N=19000 rep=2 ok flags= min MemAvailable 15004 MiB
+[run 3] ws N=19000 rep=3 start, MemAvailable 15519 MiB
+[run 3] ws N=19000 rep=3 ok flags= min MemAvailable 15009 MiB
+[run 4] ws N=19000 rep=4 start, MemAvailable 15538 MiB
+[run 4] ws N=19000 rep=4 ok flags= min MemAvailable 15024 MiB
+[run 5] ws N=19000 rep=5 start, MemAvailable 15531 MiB
+[run 5] ws N=19000 rep=5 ok flags= min MemAvailable 15020 MiB
+softnet_stat after:  dropped; conntrack count 0
+sysctl net.ipv4.ip_local_port_range restored to 32768	60999
+== cloud-ws-concurrency16 2026-10-05T21:37:50Z N=19000 repeats=5 args: --connect-concurrency 16
+[run 1] ws N=19000 rep=1 start, MemAvailable 15512 MiB
+[run 1] ws N=19000 rep=1 ok flags= min MemAvailable 14977 MiB
+[run 2] ws N=19000 rep=2 start, MemAvailable 15528 MiB
+[run 2] ws N=19000 rep=2 ok flags= min MemAvailable 15004 MiB
+[run 3] ws N=19000 rep=3 start, MemAvailable 15524 MiB
+[run 3] ws N=19000 rep=3 ok flags= min MemAvailable 15010 MiB
+[run 4] ws N=19000 rep=4 start, MemAvailable 15528 MiB
+[run 4] ws N=19000 rep=4 ok flags= min MemAvailable 15011 MiB
+[run 5] ws N=19000 rep=5 start, MemAvailable 15523 MiB
+[run 5] ws N=19000 rep=5 ok flags= min MemAvailable 15010 MiB
+softnet_stat after:  dropped; conntrack count 0
+== cloud-ws-concurrency1024 2026-10-05T21:41:03Z N=19000 repeats=5 args: --connect-concurrency 1024
+[run 1] ws N=19000 rep=1 start, MemAvailable 15511 MiB
+[run 1] ws N=19000 rep=1 ok flags= min MemAvailable 15000 MiB
+[run 2] ws N=19000 rep=2 start, MemAvailable 15511 MiB
+[run 2] ws N=19000 rep=2 ok flags= min MemAvailable 15023 MiB
+[run 3] ws N=19000 rep=3 start, MemAvailable 15507 MiB
+[run 3] ws N=19000 rep=3 ok flags= min MemAvailable 14996 MiB
+[run 4] ws N=19000 rep=4 start, MemAvailable 15522 MiB
+[run 4] ws N=19000 rep=4 ok flags= min MemAvailable 15001 MiB
+[run 5] ws N=19000 rep=5 start, MemAvailable 15524 MiB
+[run 5] ws N=19000 rep=5 ok flags= min MemAvailable 15023 MiB
+softnet_stat after:  dropped; conntrack count 0
+== cloud-ws-backlog16 2026-10-05T21:44:13Z N=19000 repeats=5 args: --listen-backlog 16
+[run 1] ws N=19000 rep=1 start, MemAvailable 15513 MiB
+[run 1] ws N=19000 rep=1 ok flags= min MemAvailable 15023 MiB
+[run 2] ws N=19000 rep=2 start, MemAvailable 15515 MiB
+[run 2] ws N=19000 rep=2 ok flags= min MemAvailable 14998 MiB
+[run 3] ws N=19000 rep=3 start, MemAvailable 15517 MiB
+[run 3] ws N=19000 rep=3 ok flags= min MemAvailable 14988 MiB
+[run 4] ws N=19000 rep=4 start, MemAvailable 15502 MiB
+[run 4] ws N=19000 rep=4 ok flags= min MemAvailable 15008 MiB
+[run 5] ws N=19000 rep=5 start, MemAvailable 15510 MiB
+[run 5] ws N=19000 rep=5 ok flags= min MemAvailable 15026 MiB
+softnet_stat after:  dropped; conntrack count 0
+sysctl net.ipv4.tcp_syncookies: 1 -> 0
+== cloud-ws-syncookies0 2026-10-05T21:47:32Z N=19000 repeats=5 args: 
+[run 1] ws N=19000 rep=1 start, MemAvailable 15507 MiB
+[run 1] ws N=19000 rep=1 ok flags= min MemAvailable 15012 MiB
+[run 2] ws N=19000 rep=2 start, MemAvailable 15510 MiB
+[run 2] ws N=19000 rep=2 ok flags= min MemAvailable 14993 MiB
+[run 3] ws N=19000 rep=3 start, MemAvailable 15519 MiB
+[run 3] ws N=19000 rep=3 ok flags= min MemAvailable 14996 MiB
+[run 4] ws N=19000 rep=4 start, MemAvailable 15522 MiB
+[run 4] ws N=19000 rep=4 ok flags= min MemAvailable 15016 MiB
+[run 5] ws N=19000 rep=5 start, MemAvailable 15502 MiB
+[run 5] ws N=19000 rep=5 ok flags= min MemAvailable 15009 MiB
+softnet_stat after:  dropped; conntrack count 0
+sysctl net.ipv4.tcp_max_syn_backlog: 1024 -> 64
+== cloud-ws-syncookies0-synbacklog64 2026-10-05T21:50:43Z N=19000 repeats=5 args: --listen-backlog 64
+[run 1] ws N=19000 rep=1 start, MemAvailable 15508 MiB
+[run 1] ws N=19000 rep=1 ok flags= min MemAvailable 14998 MiB
+[run 2] ws N=19000 rep=2 start, MemAvailable 15506 MiB
+[run 2] ws N=19000 rep=2 ok flags= min MemAvailable 15005 MiB
+[run 3] ws N=19000 rep=3 start, MemAvailable 15516 MiB
+[run 3] ws N=19000 rep=3 ok flags= min MemAvailable 15002 MiB
+[run 4] ws N=19000 rep=4 start, MemAvailable 15531 MiB
+[run 4] ws N=19000 rep=4 ok flags= min MemAvailable 15023 MiB
+[run 5] ws N=19000 rep=5 start, MemAvailable 15516 MiB
+[run 5] ws N=19000 rep=5 ok flags= min MemAvailable 14999 MiB
+softnet_stat after:  dropped; conntrack count 0
+sysctl net.ipv4.tcp_max_syn_backlog restored to 1024
+sysctl net.ipv4.tcp_syncookies restored to 1
+sysctl net.netfilter.nf_conntrack_max: 262144 -> 12000
+== cloud-ws-conntrack12000 2026-10-05T21:53:59Z N=19000 repeats=5 args: 
+[run 1] ws N=19000 rep=1 start, MemAvailable 15510 MiB
+[run 1] ws N=19000 rep=1 connect_failed flags=no_loadgen_report min MemAvailable 15173 MiB
+[limit] ws: stopped at N=19000
+softnet_stat after:  dropped; conntrack count 12000
+sysctl net.netfilter.nf_conntrack_max restored to 262144
+[ 2866.581293] nf_conntrack: nf_conntrack: table full, dropping packet
+[ 2866.581394] nf_conntrack: nf_conntrack: table full, dropping packet
+[ 2866.583139] nf_conntrack: nf_conntrack: table full, dropping packet
+sysctl net.core.netdev_max_backlog: 1000 -> 8
+== cloud-ws-netdevbacklog8 2026-10-05T21:57:37Z N=19000 repeats=5 args: 
+[run 2] ws N=19000 rep=1 start, MemAvailable 15513 MiB
+[run 2] ws N=19000 rep=1 ok flags= min MemAvailable 15021 MiB
+[run 3] ws N=19000 rep=2 start, MemAvailable 15512 MiB
+[run 3] ws N=19000 rep=2 ok flags= min MemAvailable 14863 MiB
+[run 4] ws N=19000 rep=3 start, MemAvailable 15438 MiB
+[run 4] ws N=19000 rep=3 ok flags= min MemAvailable 14952 MiB
+[run 5] ws N=19000 rep=4 start, MemAvailable 15482 MiB
+[run 5] ws N=19000 rep=4 ok flags= min MemAvailable 14977 MiB
+[run 6] ws N=19000 rep=5 start, MemAvailable 15493 MiB
+[run 6] ws N=19000 rep=5 ok flags= min MemAvailable 14964 MiB
+softnet_stat after:  dropped; conntrack count 29
+sysctl net.core.netdev_max_backlog restored to 1000 by hand after the driver bug (SAVED=() reset)
+== cloud-sse 2026-10-05T22:22:16Z (separate invocation after the driver bug)
+[run 1] sse N=1000 rep=1 start, MemAvailable 15522 MiB
+[run 1] sse N=1000 rep=1 ok flags= min MemAvailable 15438 MiB
+[run 2] sse N=5000 rep=1 start, MemAvailable 15474 MiB
+[run 2] sse N=5000 rep=1 ok flags= min MemAvailable 15260 MiB
+[run 3] sse N=10000 rep=1 start, MemAvailable 15497 MiB
+[run 3] sse N=10000 rep=1 ok flags= min MemAvailable 15074 MiB
+[run 5] sse N=10000 rep=2 start, MemAvailable 15496 MiB
+[run 5] sse N=10000 rep=2 ok flags= min MemAvailable 15047 MiB
+[run 7] sse N=10000 rep=3 start, MemAvailable 15478 MiB
+[run 7] sse N=10000 rep=3 ok flags= min MemAvailable 15042 MiB
+[run 9] sse N=10000 rep=4 start, MemAvailable 15507 MiB
+[run 9] sse N=10000 rep=4 ok flags= min MemAvailable 15069 MiB
+[run 11] sse N=10000 rep=5 start, MemAvailable 15505 MiB
+[run 11] sse N=10000 rep=5 ok flags= min MemAvailable 15064 MiB
+[run 13] sse N=19000 rep=1 start, MemAvailable 15493 MiB
+[run 13] sse N=19000 rep=1 ok flags= min MemAvailable 14696 MiB
+[run 15] sse N=19000 rep=2 start, MemAvailable 15500 MiB
+[run 15] sse N=19000 rep=2 ok flags= min MemAvailable 14693 MiB
+[run 17] sse N=19000 rep=3 start, MemAvailable 15490 MiB
+[run 17] sse N=19000 rep=3 ok flags= min MemAvailable 14693 MiB
+[run 19] sse N=19000 rep=4 start, MemAvailable 15496 MiB
+[run 19] sse N=19000 rep=4 ok flags= min MemAvailable 14686 MiB
+[run 20] sse N=19000 rep=5 start, MemAvailable 15503 MiB
+[run 20] sse N=19000 rep=5 ok flags= min MemAvailable 14695 MiB
+done 2026-10-05T22:29:51Z
