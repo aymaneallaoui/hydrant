@@ -1,0 +1,41 @@
+teardown_cycles.py, ws, 15000 connections per cycle, 5 cycles, 60 s watch after each teardown, release server from this branch (glibc 2.39 unless noted)
+
+== glibc-default
+baseline rss 4952 kB anon 460 kB
+cycle 1: loadgen exit 0, peak rss 100244 kB, rss right after 98244 kB, after 60s 98244 kB (anon 93752 kB), gauge 0.0
+  malloc_stats: system 93456 kB, in use 279 kB
+cycle 2: loadgen exit 0, peak rss 103708 kB, rss right after 103640 kB, after 60s 103640 kB (anon 99172 kB), gauge 0.0
+  malloc_stats: system 98828 kB, in use 290 kB
+cycle 3: loadgen exit 0, peak rss 104244 kB, rss right after 104244 kB, after 60s 104244 kB (anon 99776 kB), gauge 0.0
+  malloc_stats: system 99492 kB, in use 315 kB
+cycle 4: loadgen exit 0, peak rss 105912 kB, rss right after 105236 kB, after 60s 103748 kB (anon 99280 kB), gauge 0.0
+  malloc_stats: system 98944 kB, in use 329 kB
+cycle 5: loadgen exit 0, peak rss 107052 kB, rss right after 103760 kB, after 60s 103760 kB (anon 99292 kB), gauge 0.0
+  malloc_stats: system 98936 kB, in use 334 kB
+
+== jemalloc-5-ld-preload
+baseline rss 8068 kB anon 1424 kB
+cycle 1: loadgen exit 0, peak rss 102532 kB, rss right after 101408 kB, after 60s 101416 kB (anon 94772 kB), gauge 0.0
+cycle 2: loadgen exit 0, peak rss 104200 kB, rss right after 100272 kB, after 60s 100272 kB (anon 93628 kB), gauge 0.0
+cycle 3: loadgen exit 0, peak rss 104756 kB, rss right after 99712 kB, after 60s 99716 kB (anon 93072 kB), gauge 0.0
+cycle 4: loadgen exit 0, peak rss 105052 kB, rss right after 102004 kB, after 60s 84940 kB (anon 78296 kB), gauge 0.0
+cycle 5: loadgen exit 0, peak rss 110712 kB, rss right after 97852 kB, after 60s 97852 kB (anon 91208 kB), gauge 0.0
+
+== MALLOC_ARENA_MAX=1
+baseline rss 4976 kB anon 440 kB
+cycle 1: loadgen exit 0, peak rss 97816 kB, rss right after 97816 kB, after 60s 97816 kB (anon 93280 kB), gauge 0.0
+cycle 2: loadgen exit 0, peak rss 97996 kB, rss right after 97996 kB, after 60s 97996 kB (anon 93460 kB), gauge 0.0
+cycle 3: loadgen exit 0, peak rss 98108 kB, rss right after 98108 kB, after 60s 98108 kB (anon 93572 kB), gauge 0.0
+cycle 4: loadgen exit 0, peak rss 98108 kB, rss right after 98108 kB, after 60s 98108 kB (anon 93572 kB), gauge 0.0
+cycle 5: loadgen exit 0, peak rss 98204 kB, rss right after 98204 kB, after 60s 98204 kB (anon 93668 kB), gauge 0.0
+
+== MALLOC_TRIM_THRESHOLD_=131072_MALLOC_TOP_PAD_=0
+baseline rss 5156 kB anon 436 kB
+cycle 1: loadgen exit 0, peak rss 100532 kB, rss right after 100256 kB, after 60s 99812 kB (anon 95092 kB), gauge 0.0
+cycle 2: loadgen exit 0, peak rss 104008 kB, rss right after 104008 kB, after 60s 104008 kB (anon 99288 kB), gauge 0.0
+cycle 3: loadgen exit 0, peak rss 103260 kB, rss right after 103260 kB, after 60s 103260 kB (anon 98540 kB), gauge 0.0
+cycle 4: loadgen exit 0, peak rss 106620 kB, rss right after 106348 kB, after 60s 106348 kB (anon 101628 kB), gauge 0.0
+cycle 5: loadgen exit 0, peak rss 106660 kB, rss right after 103008 kB, after 60s 103008 kB (anon 98288 kB), gauge 0.0
+
+== one-off, glibc default, 15000 ws connections, after teardown (gdb, malloc_stats then malloc_trim(0)):
+RSS 99892 kB (RssAnon 95104) with glibc in use 254128 bytes, system 97071104 bytes over 5 arenas; after malloc_trim(0): RSS 6760 kB (RssAnon 1996)

@@ -37,6 +37,8 @@ There is also a send timeout. If a write to a socket blocks longer than `HYDRANT
 
 On one 32-core WSL2 machine, over loopback, hydrant held up to 99,982 of 100,000 requested WebSocket connections (99,691 in the worst of ten runs). Server memory was about 6.5 KB per connection after I fixed a buffer problem, against about 137 KB before. SSE costs about 27.7 KB per connection and I only got it to 75,000. The connect phase at 100,000 connections took anywhere from 4.4 to 175 seconds and I never explained why.
 
+A later pass on a second machine (a 4-core cloud sandbox limited to 19,000 connections by its file limit) reproduced the per-connection figures to within 1 percent, traced most of the SSE cost to hyper's HTTP/1 buffers and a route table that axum rebuilt per connection, and cut SSE to about 22.5 KB per connection by fixing the latter. The memory kept after teardown is the allocator holding freed memory, not a leak. The connect-phase stall could not be reached on that machine and is still open.
+
 All of that is one topic at one message per second, so it says little about throughput. The full write-up, with the caveats, is in [docs/scaling-to-100k.md](docs/scaling-to-100k.md).
 
 ## What is missing
