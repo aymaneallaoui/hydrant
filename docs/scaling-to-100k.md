@@ -125,6 +125,52 @@ What this says. The source-port search is not the mechanism: filling each destin
 
 Still open: the cause. Reaching 65,000 connections on one host needs a process limit above 65,000 descriptors, which this sandbox cannot grant, so the direct reproduction and the counter deltas at the stall remain to be taken on a machine that can. The listener sampling, the extra counters and the driver are in place for that run.
 
+### Open question 2: why SSE costs four times WebSocket
+
+Verdict: measured, and about a fifth of it removed. Heap profiles with heaptrack (`bench/heap-profile.sh`, a release build with line tables, 10,000 idle connections of one transport, summaries in `bench/results/cloud/heap/`) attribute the live heap at its peak as follows, in bytes per connection:
+
+| Site | WebSocket | SSE |
+| --- | --- | --- |
+| hyper HTTP/1 read buffer (`BytesMut` reserved in `poll_read_head`: 8 KiB at first, grown once to 16 KiB by an amortised reserve) | 0 (freed at the upgrade) | 16,426 |
+| hyper HTTP/1 write buffer (`Vec::with_capacity(8192)` in `Buffered::new`) | 0 (freed at the upgrade) | 8,193 |
+| axum route table rebuilt per connection (`Router::with_state` inside the make-service that `axum::serve` wraps a bare `Router` in) | 0 (freed when the connection task ends at the upgrade) | 3,501 |
+| tungstenite read buffer (`BytesMut::with_capacity(4096)`) | 4,096 | 0 |
+| pump task (the spawned future) | 1,536 | 768 |
+| tokio `mpsc::channel(1)` for the SSE pump (a 32-slot block plus the channel) | 0 | 2,080 |
+| http `HeaderMap` and `Extensions` of the request and response | 0 | 656 |
+| tokio I/O registration | 256 | 256 |
+| everything else (hyper connection task, runtime, hub, topic name) | 302 | 3,656 |
+| live heap at peak | 6,193 | 35,535 |
+| RSS at idle minus baseline, same run | 6,513 | 27,705 |
+
+For WebSocket the heap and the RSS agree to within 5 percent. For SSE the heap exceeds the RSS by about 8 KB because the 16 KiB read buffer is reserved but only its first part is ever written, so half of it never becomes resident; with that correction the attributed total and the RSS agree to within about 1 KB per connection. The hypotheses in Finding 2 were therefore right about hyper's HTTP/1 state (24 KiB allocated, about 16 KiB resident, per idle SSE stream: 60 to 70 percent of the cost) and about the channel and the pump task (about 2.8 KB together); the keep-alive timer and the tracing span are too small to show (the request span is filtered out at the `warn` log level the benchmark uses). What nobody had guessed is the route table: `axum::serve(listener, router)` wraps a bare `Router` in a make-service whose `call` runs `self.clone().with_state(())` for every accepted connection, rebuilding the route hash table and keeping that copy alive as long as the connection, which for an SSE stream is forever. `Router::into_make_service()` does that conversion once at startup and clones an `Arc` per connection instead. That change is in `crates/server/src/lib.rs`; it changes no routing, no middleware order and no shutdown behaviour, and the existing tests pass. Measured with `bench/run.py` at 10,000 connections, five runs each (variants `cloud-sse`, `cloud-sse-makeservice`, `cloud-ws`, `cloud-ws-makeservice`):
+
+| Server | SSE RSS per connection | WebSocket RSS per connection |
+| --- | --- | --- |
+| before (`cloud-*`) | 27,707 to 27,709 bytes | 6,529 to 6,547 bytes |
+| after (`cloud-*-makeservice`) | 22,521 to 22,524 bytes | 6,488 to 6,495 bytes |
+
+That is 5,186 bytes (18.7 percent) less per SSE stream and nothing measurable for WebSocket, and a second heap profile of the new build shows the route-table site at 0 bytes and the SSE live heap at 30,575 bytes per connection. The remaining gap to WebSocket is hyper's two buffers, which cannot be shrunk from this code: hyper's server builder has no read-buffer-size setting, its `max_buf_size` floor is 8 KiB and does not stop the amortised growth, and the 8 KiB write buffer is a fixed `Vec::with_capacity`. Replacing `axum::serve` with a hand-written accept loop would therefore buy nothing here, so it was not done. The `mpsc::channel(1)` block (about 2 KB) could be replaced by a hand-written one-slot handoff, but that is new synchronisation code in the path that the stall-protection test guards, for about 7 percent of the remaining cost, and was left alone. Both profiles were taken on the cloud sandbox; the per-connection RSS it measures (6.5 KB and 27.7 KB before the change) matches the laptop's figures to within 1 percent, so the attribution should carry over.
+
+### Open question 3: memory not returned after teardown
+
+Verdict: allocator retention, not a leak. `bench/teardown_cycles.py` connects 15,000 WebSockets to one server process, holds them, disconnects, watches RSS and `RssAnon` for 60 s, and repeats; five cycles per setting, output in `bench/results/cloud/teardown/`. With glibc 2.39 defaults the server's RSS after each teardown was 98.2, 103.6, 104.2, 103.7 and 103.8 MiB against a baseline of 4.9 MiB and a peak of 100 to 107 MiB during the cycle: a plateau reached in the first cycle, not growth proportional to cycles. Through gdb, glibc's `malloc_stats()` after each cycle reported 279, 290, 315, 329 and 334 KB in use against 93 to 99 MB of "system bytes" in five arenas, so the process holds a few hundred kilobytes of live allocations and about 95 MiB of freed memory the allocator has not returned; the 55 KB drift in the in-use figure over five cycles is under 4 bytes per connection and could not be separated from the hub's and runtime's own bookkeeping. A forced `malloc_trim(0)` (gdb, after a one-off 15,000-connection cycle) took RSS from 99.9 MiB to 6.8 MiB at once, which is the decisive sign of retention: the memory is free inside the process and goes back to the kernel the moment the allocator is asked. RSS was never observed to fall on its own within 60 s. Settings tried, five cycles each: `MALLOC_ARENA_MAX=1` gives the flattest line (97.8 to 98.2 MiB after each teardown, the lowest of the four) because one arena fragments less than five, but returns nothing either; `MALLOC_TRIM_THRESHOLD_=131072` with `MALLOC_TOP_PAD_=0` changes nothing (99.8 to 106.3 MiB) because trimming only releases the top of each arena's heap and the freed chunks are spread through it; jemalloc 5 loaded with `LD_PRELOAD` behaves the same (97.9 to 101.4 MiB after four of the five teardowns, 84.9 MiB once), since jemalloc's page purging runs on allocation activity and an idle server allocates nothing. No alternative allocator was added as a cargo feature because none behaved materially better in this test. If returning memory after a drop in connections matters for a deployment, the honest options are a periodic `malloc_trim(0)` call (glibc only, a few milliseconds here) or jemalloc with `background_thread:true`; neither was tested at 100,000 connections and neither is shipped.
+
+### SSE at 100,000 connections
+
+Not run: the sandbox's 20,000-descriptor hard limit stops any process at about 19,990 sockets, so the largest count that completed here is 19,000 for both transports, five runs each with the same workload as the sweep (one topic, 1 message per second for 20 s, 64-byte payload, fresh server per step), variants `cloud-ws` and `cloud-sse`:
+
+| Transport, N = 19,000 | Established | Connect phase | Server RSS per connection | Latency p50 / p99 | Teardown |
+| --- | --- | --- | --- | --- | --- |
+| WebSocket | 19,000 in all 5 runs | 0.71 to 0.84 s | 6,494 to 6,502 bytes | 48.5 to 51.0 ms / 101 to 106 ms | 0.33 to 0.38 s |
+| SSE | 19,000 in all 5 runs | 0.58 to 0.65 s | 27,705 to 27,707 bytes | 57.2 to 60.1 ms / 109 to 117 ms | 0.27 to 0.37 s |
+
+Loss was 0 in all 20 runs at 10,000 and 19,000. The per-connection figures reproduce the laptop's to within 1 percent on a different kernel and allocator, so the memory claims do not depend on WSL2. The 100,000 SSE run remains to be taken on a machine with at least 100,000 descriptors per process and about 2.3 GiB free for the server with the make-service change (2.8 GiB without it), plus about 0.5 GiB for the load generator.
+
+### Leaked local paths in the history
+
+`bench/results/environment.json` carried absolute paths (a home directory and a session-scoped temporary directory) in four commits from b5d4a13 to 0cbe65e; every blob in every ref was searched and nothing else matched. `tools/scrub-history.sh` rewrites a fresh mirror clone with `git filter-repo` text replacement, limited to the commits after 4c9191a so that the 23 earlier commits keep their hashes and SSH signatures, and prints a verification report. The rewritten `main` is pushed as the branch `scrubbed/main` for inspection; the force push of `main` itself is the owner's step and is described in the pull request that added the script.
+
 ## How to reproduce
 
 ```sh

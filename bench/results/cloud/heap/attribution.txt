@@ -21,3 +21,5 @@ Peak RSS minus baseline RSS is the figure the sweep reports; heap bytes above RS
        256 B/conn    0.7%  tokio I/O registration
         24 B/conn    0.1%  topic name Arc<str>
 
+== sse after the into_make_service change (commit on this branch), same procedure:
+  live heap at peak 30575 bytes per connection (route-table site: 0); RSS idle minus baseline 22520 bytes per connection (8436 kB to 228360 kB)

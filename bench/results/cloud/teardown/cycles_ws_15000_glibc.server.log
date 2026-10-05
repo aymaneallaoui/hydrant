@@ -1,0 +1,100 @@
+Arena 0:
+system bytes     =    4771840
+in use bytes     =     152432
+Arena 1:
+system bytes     =   21090304
+in use bytes     =      48160
+Arena 2:
+system bytes     =   23048192
+in use bytes     =      34352
+Arena 3:
+system bytes     =   24891392
+in use bytes     =      24544
+Arena 4:
+system bytes     =   21897216
+in use bytes     =      26432
+Total (incl. mmap):
+system bytes     =   95698944
+in use bytes     =     285920
+max mmap regions =          0
+max mmap bytes   =          0
+Arena 0:
+system bytes     =    6807552
+in use bytes     =     153312
+Arena 1:
+system bytes     =   21622784
+in use bytes     =      43200
+Arena 2:
+system bytes     =   24969216
+in use bytes     =      36640
+Arena 3:
+system bytes     =   24891392
+in use bytes     =      26096
+Arena 4:
+system bytes     =   22908928
+in use bytes     =      38544
+Total (incl. mmap):
+system bytes     =  101199872
+in use bytes     =     297792
+max mmap regions =          0
+max mmap bytes   =          0
+Arena 0:
+system bytes     =    7041024
+in use bytes     =     153312
+Arena 1:
+system bytes     =   22065152
+in use bytes     =      49568
+Arena 2:
+system bytes     =   24633344
+in use bytes     =      42560
+Arena 3:
+system bytes     =   24891392
+in use bytes     =      35008
+Arena 4:
+system bytes     =   23248896
+in use bytes     =      42928
+Total (incl. mmap):
+system bytes     =  101879808
+in use bytes     =     323376
+max mmap regions =          0
+max mmap bytes   =          0
+Arena 0:
+system bytes     =    4771840
+in use bytes     =     153120
+Arena 1:
+system bytes     =   25239552
+in use bytes     =      51104
+Arena 2:
+system bytes     =   23166976
+in use bytes     =      48400
+Arena 3:
+system bytes     =   24891392
+in use bytes     =      38208
+Arena 4:
+system bytes     =   23248896
+in use bytes     =      46576
+Total (incl. mmap):
+system bytes     =  101318656
+in use bytes     =     337408
+max mmap regions =          0
+max mmap bytes   =          0
+Arena 0:
+system bytes     =    4771840
+in use bytes     =     153168
+Arena 1:
+system bytes     =   23924736
+in use bytes     =      62336
+Arena 2:
+system bytes     =   23166976
+in use bytes     =      47248
+Arena 3:
+system bytes     =   24891392
+in use bytes     =      39360
+Arena 4:
+system bytes     =   24555520
+in use bytes     =      40784
+Total (incl. mmap):
+system bytes     =  101310464
+in use bytes     =     342896
+max mmap regions =          0
+max mmap bytes   =          0
