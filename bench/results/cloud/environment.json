@@ -602,6 +602,178 @@
         "hold_idle_secs": 10,
         "drain_timeout_secs": 10
       }
+    },
+    {
+      "variant": "cloud-sse-makeservice",
+      "date_utc": "2026-10-05T22:42:54+00:00",
+      "mem_available_kb_at_start": 15337460,
+      "server_binary": "target/release/hydrant-server",
+      "server_binary_sha256": "b291a497ca91af8c62277b8f6dd9189eccf62de772e2309d0ab0299a3cc2982f",
+      "git_commit": "e3e207d825046058d6c37eb781ebe70a3147a8e9",
+      "git_branch": "investigate/open-findings",
+      "git_dirty": true,
+      "ladder": [
+        10000
+      ],
+      "transports": [
+        "sse"
+      ],
+      "sweep": {
+        "repeats": 5,
+        "no_repeat": false,
+        "repeat_points": "N=10000 and the maximum N reached",
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "unset (server default)",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.147.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
+    },
+    {
+      "variant": "cloud-ws-makeservice",
+      "date_utc": "2026-10-05T22:46:03+00:00",
+      "mem_available_kb_at_start": 15734188,
+      "server_binary": "target/release/hydrant-server",
+      "server_binary_sha256": "b291a497ca91af8c62277b8f6dd9189eccf62de772e2309d0ab0299a3cc2982f",
+      "git_commit": "37faebb0c19bf7867e22f41e70c6534a8475dafa",
+      "git_branch": "investigate/open-findings",
+      "git_dirty": true,
+      "ladder": [
+        10000
+      ],
+      "transports": [
+        "ws"
+      ],
+      "sweep": {
+        "repeats": 5,
+        "no_repeat": false,
+        "repeat_points": "N=10000 and the maximum N reached",
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "unset (server default)",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.114.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
+    },
+    {
+      "variant": "cloud-sse-makeservice-top",
+      "date_utc": "2026-10-05T22:51:52+00:00",
+      "mem_available_kb_at_start": 15798472,
+      "server_binary": "target/release/hydrant-server",
+      "server_binary_sha256": "b291a497ca91af8c62277b8f6dd9189eccf62de772e2309d0ab0299a3cc2982f",
+      "git_commit": "37faebb0c19bf7867e22f41e70c6534a8475dafa",
+      "git_branch": "investigate/open-findings",
+      "git_dirty": true,
+      "ladder": [
+        19000
+      ],
+      "transports": [
+        "sse"
+      ],
+      "sweep": {
+        "repeats": 3,
+        "no_repeat": false,
+        "repeat_points": "N=10000 and the maximum N reached",
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "unset (server default)",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.213.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
+    },
+    {
+      "variant": "cloud-ws-makeservice-top",
+      "date_utc": "2026-10-05T22:53:47+00:00",
+      "mem_available_kb_at_start": 15813600,
+      "server_binary": "target/release/hydrant-server",
+      "server_binary_sha256": "b291a497ca91af8c62277b8f6dd9189eccf62de772e2309d0ab0299a3cc2982f",
+      "git_commit": "37faebb0c19bf7867e22f41e70c6534a8475dafa",
+      "git_branch": "investigate/open-findings",
+      "git_dirty": true,
+      "ladder": [
+        19000
+      ],
+      "transports": [
+        "ws"
+      ],
+      "sweep": {
+        "repeats": 3,
+        "no_repeat": false,
+        "repeat_points": "N=10000 and the maximum N reached",
+        "memory_floor_kib": 1572864
+      },
+      "server": {
+        "profile": "release",
+        "env": {
+          "HYDRANT_LISTEN_ADDR": "0.0.0.0:<port>",
+          "HYDRANT_LOG_LEVEL": "warn",
+          "HYDRANT_LISTEN_BACKLOG": "unset (server default)",
+          "other HYDRANT_*": "unset, built-in defaults (topic capacity 256, max message 65536 bytes, policy disconnect, send timeout 10 s, max connections unlimited)"
+        }
+      },
+      "loadgen": {
+        "binary": "target/release/hydrant-loadgen",
+        "single_topic": "loadgen",
+        "spread_loopback_addresses": 64,
+        "address_block": "127.59.<run>.1 .. +63, one /24 per run",
+        "payload_bytes": 64,
+        "connect_concurrency": 128,
+        "rate_msgs_per_sec": 1,
+        "publish_duration_secs": 20,
+        "hold_idle_secs": 10,
+        "drain_timeout_secs": 10
+      }
     }
   ]
 }

@@ -164,8 +164,10 @@ Not run: the sandbox's 20,000-descriptor hard limit stops any process at about 1
 | --- | --- | --- | --- | --- | --- |
 | WebSocket | 19,000 in all 5 runs | 0.71 to 0.84 s | 6,494 to 6,502 bytes | 48.5 to 51.0 ms / 101 to 106 ms | 0.33 to 0.38 s |
 | SSE | 19,000 in all 5 runs | 0.58 to 0.65 s | 27,705 to 27,707 bytes | 57.2 to 60.1 ms / 109 to 117 ms | 0.27 to 0.37 s |
+| WebSocket, server with the make-service change (3 runs) | 19,000 in all 3 | 0.59 to 0.62 s | 6,477 to 6,479 bytes | 48.0 to 49.3 ms / 93 to 99 ms | 0.34 to 0.38 s |
+| SSE, server with the make-service change (3 runs) | 19,000 in all 3 | 0.59 to 0.79 s | 22,520 to 22,524 bytes | 58.5 to 61.3 ms / 113 to 137 ms | 0.34 to 0.35 s |
 
-Loss was 0 in all 20 runs at 10,000 and 19,000. The per-connection figures reproduce the laptop's to within 1 percent on a different kernel and allocator, so the memory claims do not depend on WSL2. The 100,000 SSE run remains to be taken on a machine with at least 100,000 descriptors per process and about 2.3 GiB free for the server with the make-service change (2.8 GiB without it), plus about 0.5 GiB for the load generator.
+Loss was 0 in all 36 runs at 10,000 and 19,000 (variants `cloud-ws`, `cloud-sse`, `cloud-*-makeservice` and `cloud-*-makeservice-top`). The per-connection figures reproduce the laptop's to within 1 percent on a different kernel and allocator, so the memory claims do not depend on WSL2. The 100,000 SSE run remains to be taken on a machine with at least 100,000 descriptors per process and about 2.3 GiB free for the server with the make-service change (2.8 GiB without it), plus about 0.5 GiB for the load generator.
 
 ### Leaked local paths in the history
 
