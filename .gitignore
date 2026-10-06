@@ -9,3 +9,5 @@ Thumbs.db
 .serena/
 bench/.venv/
 __pycache__/
+.claude/
+skills-lock.json
